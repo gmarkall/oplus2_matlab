@@ -1,9 +1,0 @@
-
-
-Extend op2.m to cope with the same kernel being called in multiple places
-
-Add recursive geometric partitioning for local renumbering
-
-Improve documentation to include new x86 backend
-
-Make #blocks = 4*#SMs for direct kernels?  (how does block scheduler work?) 
