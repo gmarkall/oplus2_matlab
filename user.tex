@@ -1,0 +1,386 @@
+%
+%--  Text width, line spacing, etc.
+%
+ \documentstyle[11pt]{article}
+ \topmargin 0.in  \headheight 0pt  \headsep 0pt  \raggedbottom
+ \oddsidemargin 0.1in 
+ \textheight 9.5in  \textwidth 6.00in 
+ \parskip 5pt plus 1pt minus 1pt
+ \def \baselinestretch {1.25}   % one-and-a-half spaced
+ \setlength {\unitlength} {0.75in}
+%
+%
+\newenvironment{routine}[2]
+{\vspace{.25in}{\noindent\bf\hspace{0pt} #1}{\\ \noindent #2}
+\begin{list}{}{
+\renewcommand{\makelabel}[1]{{\tt ##1} \hfil} 
+\itemsep 0pt plus 1pt minus 1pt
+\leftmargin  1.2in
+\rightmargin 0.0in
+\labelwidth  1.1in
+\itemindent  0.0in
+\listparindent  0.0in
+\labelsep    0.05in}
+}{\end{list}}
+%
+
+\begin{document}
+
+\title{OP2 User's Manual (phase 1)}
+\author{Mike Giles}
+\maketitle
+
+
+\newpage
+\section{Introduction}
+
+OP2 is an API with associated libraries and preprocessors to 
+generate parallel executables for applications on unstructured grids.  
+The initial API is for C, but FORTRAN 77 will also be supported.
+
+The key concept behind OP2 is that unstructured grids can be described
+by a number of sets.  Depending on the application, these sets might
+be of nodes, edges, triangular faces, quadrilateral faces, cells of
+a variety of types, far-field boundary nodes, wall boundary faces, etc.
+Associated with these sets are both data (e.g.~coordinate data at 
+nodes) and pointers to other sets (e.g.~edge pointers to the two 
+nodes at each end of the edge).  All of the numerically-intensive
+operations can then be described as a loop over all members of a set, 
+carrying out some operations on data associated directly
+with the set or with another set through a pointer.   
+
+OP2 makes the important restriction that the order in which the
+function is applied to the members of the set must not affect the
+final result.  This allows the parallel implementation to choose
+its own ordering to achieve maximum parallel efficiency.
+
+Two other restrictions in the current implementation are that 
+the sets and pointers are static (i.e.~they do not change) and the 
+operands in the set operations are not referenced through a double 
+level of pointer indirection (i.e.~through a pointer to another set 
+which in turn uses another pointer to data in a third set).
+
+In the long-term, this library will allow users to write a single
+program which can be built into a variety of different executables for
+different platforms:
+\begin{itemize}
+\item
+single-threaded on a CPU
+\item
+multi-threaded / vectorised on a CPU using OpenMP and/or SSE/AVX vectors
+\item
+parallelised on GPUs using CUDA or OpenCL
+\item
+distributed-memory MPI parallelisation in combination with any of the above
+\end{itemize}
+
+The higher-level distributed-memory MPI parallelisation will 
+require parallel file I/O and so there will be routines to handle 
+file I/O for the main datasets, as well as routines to handle 
+terminal I/O.
+
+However, the initial version described in this document is for 
+execution on a shared-memory system, and the initial implementation
+is for CUDA execution on a single GPU.
+
+\newpage
+\section{Overview}
+
+A computational project can be viewed as involving three steps:
+\begin{itemize}
+\item
+writing the program
+\item
+debugging the program, often using a small testcase
+\item
+running the program on increasingly large applications
+\end{itemize}
+
+With OP2 we want to simplify the first two tasks, while providing
+as much performance as possible for the third one.  
+
+To achieve the high performance for large applications, a 
+preprocessor will be needed to generate the executable for GPUs.
+However, to keep the initial development simple, the single-threaded 
+executable does not use any special tools; the user's main code
+is simply linked to a set of library routines, most of which do
+little more than error-checking to assist the debugging process 
+by checking the correctness of the user's program.  Note that this 
+single-threaded version will not execute efficiently.  A new 
+preprocessor (which has not yet been developed) will be needed 
+to get efficient OpenMP/SSE/AVX execution on CPUs.
+
+Figure \ref{fig:seq} shows the build process for a single 
+thread CPU executable.  The user's main program (in this case 
+{\tt jac.cpp}) uses the OP header file {\tt op\_seq.h} and is 
+linked to the OP routines in {\tt op\_seq.c} using {\tt g++},
+perhaps controlled by a Makefile.
+
+Figure \ref{fig:op} shows the build process for the corresponding
+CUDA executable.  The preprocessor parses the user's main program 
+and produces a modified main program and a CUDA file which
+includes a separate file for each of the kernel functions.  These 
+are then compiled and linked to the OP routines in {\tt op\_lib.cu} 
+using {\tt g++} and the NVIDIA CUDA compiler {\tt nvcc}, again 
+perhaps controlled by a Makefile.
+
+As well as the header file {\tt op\_seq.h} which is included by
+the user's main code {\tt jac.cpp}, there is a header file
+{\tt op\_datatypes.h} which is included by all of the files
+in the CUDA implementation, and by {\tt op\_seq.h}.
+
+
+In looking at the API specification, users may think it is
+a little verbose in places. e.g.~users have to re-supply 
+information about the datatype of the datasets being used
+in a parallel loop.  This is a deliberate choice to simplify
+the task of the preprocessor, and therefore hopefully reduce
+the chance for errors.  It is also motivated by the thought that
+{\bf ``programming is easy; it's the debugging which is difficult''}.
+i.e.~writing code isn't time-consuming, it's correcting it
+which takes the time.  Therefore, it's not unreasonable to ask
+the programmer to supply redundant information, but be assured 
+that the preprocessor or library will check that all redundant
+information is self-consistent.  If you declare a dataset as being 
+of type {\tt OP\_DOUBLE} and later say that it is of type 
+{\tt OP\_FLOAT} this will be flagged up as an error at run-time, 
+both in the single-threaded library and in the CUDA library.
+
+\newpage
+
+\begin{figure}
+\begin{center}
+{\setlength{\unitlength}{1in}
+\begin{picture}(4.5,2)
+
+\put(-0.2,1.6){\framebox(0.8,0.3){\tt op\_seq.h}}
+\put(1,1.5){\framebox(1,0.5){\tt jac.cpp}}
+
+\put(0.65,1.75){\line(1,0){0.1}}
+\put(0.85,1.75){\vector(1,0){0.1}}
+
+\put(2.5,1.5){\framebox(1,0.5){\tt op\_seq.c}}
+
+\put(1.5,1.5){\vector(0,-1){0.625}}
+
+\put(3,1.5){\vector(0,-1){0.625}}
+
+\put(2.25,0.5){\oval(2.5,0.75)}
+\put(2.25,0.5){\makebox(0,0){make / g++}}
+
+\end{picture}}
+\end{center}
+
+\caption{Sequential code build process}
+\label{fig:seq}
+\end{figure}
+
+
+
+\begin{figure}
+\begin{center}
+{\setlength{\unitlength}{1in}
+\begin{picture}(7,5)
+
+\put(1.5,4){\framebox(1,0.5){\tt jac.cpp}}
+
+\put(2.0,4.0){\vector(0,-1){0.625}}
+
+\put(2.1,3.0){\oval(4.2,0.75)}
+\put(2.1,3.0){\makebox(0,0){op2.m preprocessor}}
+
+\put(0.5,2.625){\vector(0,-1){0.625}}
+\put(2.0,2.625){\vector(0,-1){0.625}}
+\put(3.5,2.625){\vector(0,-1){0.625}}
+
+\put(0.0,1.5){\framebox(1,0.5){\tt jac\_op.cpp}}
+\put(1.3,1.5){\framebox(1.2,0.5){\tt jac\_kernels.cu}}
+\put(2.8,1.5){\framebox(1.4,0.5){}}
+\put(3.5,1.85){\makebox(0,0){\tt res\_kernel.cu}}
+\put(3.5,1.65){\makebox(0,0){\tt update\_kernel.cu}}
+\put(4.5,1.5){\framebox(1,0.5){\tt op\_lib.cu}}
+
+\put(0.5,1.5){\vector(0,-1){0.625}}
+\put(2.0,1.5){\vector(0,-1){0.625}}
+\put(5.0,1.5){\vector(0,-1){0.625}}
+
+\put(2.62,1.75){\vector(-1,0){0.1}}
+\put(2.78,1.75){\line(-1,0){0.1}}
+
+
+\put(2.75,0.5){\oval(5.5,0.75)}
+\put(2.75,0.5){\makebox(0,0){make / nvcc / g++}}
+
+\end{picture}}
+\end{center}
+
+\caption{CUDA code build process}
+\label{fig:op}
+\end{figure}
+
+
+\clearpage
+
+\newpage
+\section{Initialisation and termination routines}
+
+\begin{routine} {op\_init(int argc, char **argv)}
+{This routine must be called before all other OP routines.}
+\item \vspace{-0.4in}
+\end{routine}
+
+\begin{routine} {op\_decl\_set(int size, op\_set *set, char *name)}
+{This routine declares information about a set.
+All datatypes of the form {\tt op\_***} are defined in the header file.}
+
+\item[size]          number of elements in the set
+\item[set]           output OP set ID
+\item[name]          a name used for output diagnostics
+\item[ptr]           output OP pointer ID for identity mapping from set to itself
+\item[ptrname]       a name for identity pointer used for output diagnostics
+\end{routine}
+
+\begin{routine} {op\_decl\_ptr(op\_set from, op\_set to, int dim, int *iptr, op\_ptr *ptr, char *name)}
+{This routine declares information about a pointer from one set to another.}
+
+\item[from]          set pointed from
+\item[to]            set pointed to
+\item[dim]           number of pointers per element
+\item[iptr]          input pointer table
+\item[ptr]           output OP pointer ID
+\item[name]          a name used for output diagnostics
+\end{routine}
+
+\newpage
+
+\begin{routine} {op\_decl\_dat(op\_set set, int dim, op\_datatype type, T *dat, op\_dat *data,\\ char *name)}
+{This routine declares information about data associated with a set.}
+
+\item[set]           set
+\item[dim]           dimension of dataset (number of items per set element)
+\item[type]          datatype ({\tt OP\_DOUBLE, OP\_FLOAT, OP\_INT})
+\item[idat]          input data of type {\tt T}  (checked for consistency with {\tt type} at run-time)
+\item[dat]           output OP dataset ID
+\item[name]          a name used for output diagnostics
+\end{routine}
+
+\begin{routine} {op\_decl\_const(int dim, op\_datatype type, T *dat, char *name)}
+{This routine declares constant data with global scope to be used in user's kernel functions.
+Note: in sequential version, it is the user's responsibility to define the appropriate global
+variable.}
+
+\item[dim]           dimension of data (i.e.~array size)
+\item[type]          datatype ({\tt OP\_DOUBLE, OP\_FLOAT, OP\_INT})
+\item[idat]          input data of type {\tt T}  (checked for consistency with {\tt type} at run-time)
+\item[name]          global name to be used in user's kernel functions;\\
+                     a scalar variable if {\tt dim=1}, otherwise an array of size {\tt dim}
+\end{routine}
+
+
+\begin{routine} {op\_fetch\_data(op\_dat dat)}
+{This routine transfers data from the GPU back to the CPU.}
+\item[dat]           OP dataset ID -- data is put back into original input array 
+\end{routine}
+
+
+\begin{routine} {op\_diagnostic\_output()}
+{This routine prints out various useful bits of diagnostic info about sets, pointers and datasets}
+\item \vspace{-0.3in}
+\end{routine}
+
+
+\begin{routine} {op\_exit()}
+{This routine must be called last to cleanly terminate the OP computation.}
+\item \vspace{-0.3in}
+\end{routine}
+
+
+
+\newpage
+\section{Parallel execution routine}
+
+The parallel loop syntax when the user's kernel function has 3 arguments is:
+
+\begin{routine} {op\_par\_loop\_3(void (*kernel)(T0 *, T1 *, T2 *), char * name, op\_set set,\\
+\hspace*{0.13in}    op\_dat arg0, int idx0, op\_ptr ptr0, int dim0, op\_datatype typ0, op\_access acc0,\\
+\hspace*{0.13in}    op\_dat arg1, int idx1, op\_ptr ptr1, int dim1, op\_datatype typ1, op\_access acc1,\\
+\hspace*{0.13in}    op\_dat arg2, int idx2, op\_ptr ptr2, int dim2, op\_datatype typ2, op\_access acc2)}{}
+
+\item[kernel]     user's kernel function with 3 arguments of arbitrary type\\
+                  (this is only used for the single-threaded CPU build)
+\item[name]       name of kernel function, used for output diagnostics
+\item[set]        OP set ID, giving set over which the parallel computation is performed
+\item[arg]        OP dataset ID
+\item[idx]        index of pointer to be used (-1 $\equiv$ no pointer indirection)
+\item[ptr]        OP pointer ID ({\tt OP\_ID} for identity mapping, i.e.~no pointer indirection)
+\item[dim]        dimension of dataset (redundant info, checked at run-time for consistency)
+\item[typ]        datatype of dataset (redundant info, checked at run-time for consistency)
+\item[acc]        access type:\\
+                  {\tt OP\_READ}: read-only\\ 
+                  {\tt OP\_WRITE}: write-only, but without potential data conflict\\ 
+                  {\tt OP\_INC}: increment\\ 
+                  {\tt OP\_RW}:  read and write, but without potential data conflict
+\end{routine}
+
+{\tt kernel} is a function with 3 arguments of arbitrary type which performs
+a calculation for a single set element.
+This will get converted by a preprocessor into a routine called by the CUDA kernel 
+function.  The preprocessor will also take the specification of the arguments and turn 
+this into the CUDA kernel function which loads in indirect data (i.e.~data addressed 
+indirectly through pointers) from the device main memory into the shared storage, 
+then calls the converted {\tt kernel} function for each element for each line in 
+the above specification.  Indirect data is incremented in shared memory (with
+thread coloring to avoid possible data conflicts) before being updated at the end 
+of the CUDA kernel call.
+
+The restriction that {\tt OP\_WRITE} and {\tt OP\_RW} access must not have any 
+potential data conflict means that two different elements of the set cannot 
+through pointer indirection reference the same elements of the dataset.  
+
+%(If they did, it would be undetermined which final value would be assigned to
+%the dataset element.  Users might argue that it would be OK if both assigned
+%the same value, but I don't want to handle that complication.)
+
+Different numbers of arguments are handled similarly by routines with names
+of the form {\tt op\_par\_loop\_n} where {\tt n} is the number of arguments.
+
+\newpage
+\section{Preprocesor}
+
+The prototype preprocessor has been written in MATLAB.  It is run by the command
+
+{\tt op2('main')}
+
+\noindent
+where {\tt main.cpp} is the user's main program.  It produces as output a 
+modified main program {\tt main\_op.cpp}, and a new CUDA file {\tt main\_kernels.cu}
+which includes one or more files of the form {\tt xxx\_kernel.cu} containing 
+the CUDA implementations of the user's kernel functions.
+
+The current preprocessor will not work if the user's application is split over 
+several files.  It will also not work if the same user kernel is used in more 
+than one parallel loop, or if global constant data is set/updated in more than 
+one place within the code.
+Both of these deficiencies will be addressed in the future.  Neither should be 
+particularly troublesome, but it requires some feedback from users about how
+they would prefer the build process to work when there are multiple source files.
+
+
+\section{Future changes}
+
+The syntax for {\tt \bf op\_par\_loop} will be expanded to include arguments 
+which are global variables coming from the host process.  The access types for
+these will be {\tt OP\_READ, OP\_INC, OP\_MIN, OP\_MAX}, with the last 3 of these
+implying a global reduction over all elements in the set.
+
+There will also be a new function {\tt \bf op\_partition} which will re-number 
+all of the elements in each set, to maximise the data reuse within each 
+mini-partition.  This is likely to use the same partitioning algorithm which
+will be employed for the higher-level distributed-memory partitioning for the
+MPI implementation in phase 2.
+
+\end{document}
+
+
+
+

@@ -28,10 +28,6 @@
 */
 
 
-//  #define op_par_loop_3(a0,a1,a2,a3,a4,a5,a6,a7,a8,a9,a10,a11,a12,a13,a14,a15,a16,a17,a18,a19,a20)  op_par_loop_##a0(a1,a2,a3,a4,a5,a6,a7,a8,a9,a10,a11,a12,a13,a14,a15,a16,a17,a18,a19,a20)
-
-
-
 #ifndef OP_DIAGS
 #define OP_DIAGS 6
 #endif
@@ -41,12 +37,15 @@
 // OP datatypes
 //
 
+
+#ifndef OP_DATATYPES
+#define OP_DATATYPES
+
 enum op_datatype { OP_FLOAT, OP_DOUBLE, OP_INT };
 enum op_access   { OP_READ, OP_WRITE, OP_RW, OP_INC };
 
 typedef struct {
-  int         size, dim, index;
-  float      *x;
+  int         size, index;
   char const *name;
 } op_set;
 
@@ -57,6 +56,8 @@ typedef struct {
   char const *name;
 } op_ptr;
 
+// identity mapping
+#define OP_ID (op_ptr) {{0,0,"null"},{0,0,"null"},0,-1,NULL,"id"}
 
 typedef struct {
   op_set      set;
@@ -92,6 +93,7 @@ typedef struct {
   int         nshared;  // bytes of shared memory required
 } op_plan;
 
+#endif
 
 //
 //  min / max definitions

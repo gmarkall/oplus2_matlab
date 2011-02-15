@@ -8,12 +8,12 @@
 EXECUTABLE	:= jac
 
 # CUDA source files (compiled with nvcc)
-CUFILES		:= res_kernel.cu \
-		   update_kernel.cu \
-		   op_lib.cu
+CUFILES		:= jac_kernels.cu  op_lib.cu
 
 # CUDA dependency files
-CU_DEPS		:= op_datatypes.h
+CU_DEPS		:= op_datatypes.h \
+		   res_kernel.cu \
+		   update_kernel.cu 
 
 # C/C++ source files (compiled with gcc / c++)
 CCFILES		:= jac_op.cpp

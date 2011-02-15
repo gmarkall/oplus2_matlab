@@ -80,25 +80,13 @@ void op_init(int argc, char **argv){
   cutilDeviceInit(argc, argv);
 }
 
-
 extern "C"
-void op_decl_set(int size, int dim, float *x, op_set &set, char const *name,
-                                              op_ptr &ptr, char const *ptrname){
+void op_decl_set(int size, op_set &set, char const *name){
   set.size = size;
-  set.dim  = dim;
-  set.x    = x;
   set.name = name;
 
   set.index = OP_set_index;
   OP_set_list[OP_set_index++] = &set;
-
-  ptr.from = set;
-  ptr.to   = set;
-  ptr.dim  = 0;
-  ptr.name = ptrname;
-
-  ptr.index = OP_ptr_index;
-  OP_ptr_list[OP_ptr_index++] = &ptr;
 }
 
 extern "C"
@@ -164,6 +152,32 @@ void op_decl_idat(op_set set, int dim, op_datatype type, int *dat, op_dat &data,
   op_decl_dat(set, dim, type, dat, data, name);
 }
 
+
+template <class T>
+void op_decl_const(int dim, op_datatype type, T *dat, char const *name){
+  if (type_error(dat,type)) {
+    printf("incorrect type specified for constant \"%s\" \n",name);  exit(1);
+  }
+
+  // printf(" op_decl_const: name = %s, size = %d\n",name,sizeof(T)*dim);
+  cutilSafeCall( cudaMemcpyToSymbol(name, dat, sizeof(T)*dim));
+}
+
+extern "C"
+void op_decl_dconst(int dim, op_datatype type, double *dat, char const *name){
+     op_decl_const(dim, type, dat, name);
+}
+
+extern "C"
+void op_decl_fconst(int dim, op_datatype type, float *dat, char const *name){
+     op_decl_const(dim, type, dat, name);
+}
+
+extern "C"
+void op_decl_iconst(int dim, op_datatype type, int *dat, char const *name){
+     op_decl_const(dim, type, dat, name);
+}
+
 //
 // diagnostic output routine
 //
@@ -197,15 +211,6 @@ void op_diagnostic_output(){
     printf("\n");
   }
 }
-
-
-
-//
-// define cpp instruction to transform op_par_loop_3 call
-//
-
-#define op_par_loop_3(a0,a1,a2,a3,a4,a5,a6,a7,a8,a9,a10,a11,a12,a13,a14,a15,a16,a17,a18,a19,a20)  op_par_loop_##a0(a1,a2,a3,a4,a5,a6,a7,a8,a9,a10,a11,a12,a13,a14,a15,a16,a17,a18,a19,a20)
-
 
 
 // comparison function for integer quicksort
@@ -302,18 +307,34 @@ op_plan * plan(char const * name, op_set set, int nargs, op_dat *args, int *idxs
 
   if (OP_DIAGS > 0) {
     for (int m=0; m<nargs; m++) {
-      if (set.index != ptrs[m].from.index || args[m].set.index != ptrs[m].to.index) {
-        printf("error: wrong pointer for arg %d in kernel \"%s\"\n",m,name); exit(1);
+      if (idxs[m] == -1) {
+        //if (ptrs[m].index != -1) {
+        if (ptrs[m].ptr != NULL) {
+          printf("error2: wrong pointer for arg %d in kernel \"%s\"\n",m,name);
+          printf("ptrs[m].index = %d\n",ptrs[m].index);
+          printf("ptrs[m].name  = %s\n",ptrs[m].name);
+          exit(1);
+        }
+      }
+      else {
+        if (set.index         != ptrs[m].from.index ||
+            args[m].set.index != ptrs[m].to.index) {
+          printf("error: wrong pointer for arg %d in kernel \"%s\"\n",m,name);
+          exit(1);
+        }
+        if (ptrs[m].dim <= idxs[m]) {
+          printf(" %d %d",ptrs[m].dim,idxs[m]);
+          printf("error: invalid pointer index for arg %d in kernel \"%s\"\n",m,name);
+          exit(1);
+        }
       }
       if (args[m].type != typs[m]) {
-        printf("error: wrong datatype for arg %d in kernel \"%s\"\n",m,name); exit(1);
+        printf("error: wrong datatype for arg %d in kernel \"%s\"\n",m,name);
+        exit(1);
       }
       if (args[m].dim != dims[m]) {
-        printf("error: wrong dimension for arg %d in kernel \"%s\"\n",m,name); exit(1);
-      }
-      if (ptrs[m].dim <= idxs[m]) {
-        printf(" %d %d",ptrs[m].dim,idxs[m]);
-        printf("error: invalid pointer index for arg %d in kernel \"%s\"\n",m,name); exit(1);
+        printf("error: wrong dimension for arg %d in kernel \"%s\"\n",m,name);
+        exit(1);
       }
     }
   }

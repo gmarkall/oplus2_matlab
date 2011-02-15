@@ -22,6 +22,29 @@
 }{\end{list}}
 %
 
+\usepackage{algorithm}
+\usepackage{algorithmic}
+
+%\newcommand{\theHalgorithm}{\arabic{algorithm}}
+
+\newenvironment{alg}[2]
+{
+\vspace{-0.5cm}
+\begin{flushleft}
+\begin{minipage}[c]{0.8\linewidth}
+\begin{algorithm}[H]
+\caption{#1}
+\label{#2}
+\begin{algorithmic}
+}
+{
+\end{algorithmic}
+\end{algorithm}
+\end{minipage}
+\end{flushleft}
+}
+
+
 \begin{document}
 
 \title{OPlus2 for many-core platforms}
@@ -853,6 +876,7 @@ transformation, and lots of code eliminated by evaluating many of the {\tt if}
 tests.  The NVIDIA compiler would then automatically unroll the little 
 {\tt p} loops in most cases.
 
+\end{itemize}
 
 
 \newpage
@@ -862,7 +886,7 @@ tests.  The NVIDIA compiler would then automatically unroll the little
 I have developed a prototype preprocessor in MATLAB.  This parses 
 the input source code, looking for all {\tt op\_par\_loop} calls.
 It then parses their arguments and based on this it generates a CUDA
-kernel routine which will execute of the GPU, and a host stub code 
+kernel routine which will execute on the GPU, and a host stub code 
 which will select the execution plan and call the kernel routine.
 Each of these aspects will now be described in some detail.
 
@@ -924,7 +948,7 @@ the write-only indirect datasets are written to global
 memory, and the global memory values for the increment 
 indirect datasets are incremented accordingly.
 
-For further details it is best to read the code, which 
+For further details it is best to read the code which 
 is generated complete with comments describing each 
 phase of its execution.
 
@@ -943,9 +967,392 @@ The stub code then calls the kernel routine several times,
 once for each block color required by the execution plan
 to avoid data conflicts between the blocks.
 
+\subsection{New main code generation}
 
+The final task for the preprocessor is to create a new main 
+code.  This involves changing the header file which is used,
+defining a number of routine prototypes, and changing slightly
+the syntax of the {\tt op\_par\_loop} calls.
+
+\subsection{Build process}
+
+Figure \ref{fig:seq} shows the build process for a single 
+thread CPU executable.  The user's main program (in this case 
+{\tt jac.cpp}) uses the OP header file {\tt op\_seq.h} and is 
+linked to the OP routines in {\tt op\_seq.c} using {\tt g++},
+perhaps controlled by a Makefile.
+
+Figure \ref{fig:op} shows the build process for the corresponding
+CUDA executable.  The preprocessor parses the user's main program 
+amd produces a modified main program and a CUDA file for 
+each of the kernel functions.  These are then all compiled and 
+linked to the OP routines in {\tt op\_lib.cu} using {\tt g++}
+and the NVIDIA CUDA compiler {\tt nvcc}, again perhaps controlled 
+by a Makefile.
+
+\newpage
+
+\begin{figure}
+\begin{center}
+{\setlength{\unitlength}{1in}
+\begin{picture}(4.5,2)
+
+\put(-0.2,1.6){\framebox(0.8,0.3){\tt op\_seq.h}}
+\put(1,1.5){\framebox(1,0.5){\tt jac.cpp}}
+
+\put(0.65,1.75){\line(1,0){0.1}}
+\put(0.85,1.75){\vector(1,0){0.1}}
+
+\put(2.5,1.5){\framebox(1,0.5){\tt op\_seq.c}}
+
+\put(1.5,1.5){\vector(0,-1){0.625}}
+
+\put(3,1.5){\vector(0,-1){0.625}}
+
+\put(2.25,0.5){\oval(2.5,0.75)}
+\put(2.25,0.5){\makebox(0,0){make / g++}}
+
+\end{picture}}
+\end{center}
+
+\caption{Sequential code build process}
+\label{fig:seq}
+\end{figure}
+
+
+
+\begin{figure}
+\begin{center}
+{\setlength{\unitlength}{1in}
+\begin{picture}(7,5)
+
+\put(1.5,4){\framebox(1,0.5){\tt jac.cpp}}
+
+\put(2.0,4.0){\vector(0,-1){0.625}}
+
+\put(2.1,3.0){\oval(4.2,0.75)}
+\put(2.1,3.0){\makebox(0,0){op2.m preprocessor}}
+
+\put(0.5,2.625){\vector(0,-1){0.625}}
+\put(2.0,2.625){\vector(0,-1){0.625}}
+\put(3.5,2.625){\vector(0,-1){0.625}}
+
+\put(0.0,1.5){\framebox(1,0.5){\tt jac\_op.cpp}}
+\put(1.3,1.5){\framebox(1.2,0.5){\tt res\_kernel.cu}}
+\put(2.8,1.5){\framebox(1.4,0.5){\tt update\_kernel.cu}}
+\put(4.5,1.5){\framebox(1,0.5){\tt op\_lib.cu}}
+
+\put(0.5,1.5){\vector(0,-1){0.625}}
+\put(2.0,1.5){\vector(0,-1){0.625}}
+\put(3.5,1.5){\vector(0,-1){0.625}}
+\put(5.0,1.5){\vector(0,-1){0.625}}
+
+\put(2.75,0.5){\oval(5.5,0.75)}
+\put(2.75,0.5){\makebox(0,0){make / nvcc / g++}}
+
+\end{picture}}
+\end{center}
+
+\caption{CUDA code build process}
+\label{fig:op}
+\end{figure}
+
+
+\clearpage
+
+\section{Atomic operations and global reductions}
+
+As illustrated in figure \ref{fig:atomic1}, when different threads 
+try to update the same variable at the same time, there is a danger
+that the resulting answer will be incorrect.  In the scenario in the
+figure, the final value includes the increment from thread 1, but 
+not the increment from thread 0. This problem is avoided by using an 
+atomic add which makes the combined read/add/write a single operation, 
+so that the atomic add by thread 0 is guaranteed to have completed 
+before the start of the atomic add by thread 1.
+
+
+
+
+\begin{figure}
+\begin{center}
+{\setlength{\unitlength}{0.4in}
+\begin{picture}(10,5)
+
+\thicklines
+
+\put(0,4.5){\vector(0,-1){4.5}}
+\put(-0.1,2.5){\makebox(0,0)[r]{time}}
+
+\put(2.5,4.5){\makebox(0,0){\underline{without atomics}}}
+\put(7.5,4.5){\makebox(0,0){\underline{with atomics}}}
+
+\put(1.5,4.0){\makebox(0,0){thread 0}}
+\put(3.5,4.0){\makebox(0,0){thread 1}}
+
+\put(1.5,3.2){\makebox(0,0){read}}
+\put(1.5,2.2){\makebox(0,0){add}}
+\put(1.5,1.2){\makebox(0,0){write}}
+
+\put(3.5,2.5){\makebox(0,0){read}}
+\put(3.5,1.5){\makebox(0,0){add}}
+\put(3.5,0.5){\makebox(0,0){write}}
+
+
+\put(6.5,4.0){\makebox(0,0){thread 0}}
+\put(8.5,4.0){\makebox(0,0){thread 1}}
+
+%\put(6.5,3.0){\makebox(0,0){read/add/write}}
+%\put(8.5,1.5){\makebox(0,0){read/add/write}}
+\put(6.5,3.0){\makebox(0,0){atomic add}}
+\put(8.5,2.0){\makebox(0,0){atomic add}}
+
+\end{picture}}
+\end{center}
+\caption{Addition with and without atomic execution}
+\label{fig:atomic1}
+\end{figure}
+
+
+Atomic operations are supported by the NVIDIA hardware and CUDA, 
+but only for integer operations.  However, there is a special atomic 
+compare-and-swap instruction {\tt atomicCAS} which can be used
+for a software implementation of atomic floating point operations.
+
+The syntax for {\tt atomicCAS} is:
+
+{\tt int atomicCAS(int* old, int compare, int new);}
+
+\noindent
+If {\tt old} matches {\tt compare}, the value of {\tt old} is changed
+to {\tt new}; otherwise it is left unchanged.  In either case, the
+function returns the initial value of {\tt old}.
+Table \ref{tab:atomic} shows how this can be used to implement 
+an atomic add.  The \verb!float_as_int! and \verb!int_as_float!
+operations are type casts which do not change the bit-wise values.
+The key idea is that the routine computes a new value, but this is 
+only stored if the old value hasn't changed in the meantime.
+If it has, the routine has to repeat the operation until
+it successfully updates the old value.
+
+This example is easily modified to perform other reduction 
+operations such as computing a minimum or a maximum.  This 
+will be useful in performing global reduction operations
+such as max / min / sum.  Each thread in a block can first 
+do the reduction for the set elements it processes.  The 
+values for all of the threads in the block can then be 
+combined using the techniques outlined in the CUDA SDK 
+{\tt reduction} example, and then the global reduction 
+value can be obtained by thread 0 of eack block performing
+an atomic update of a single variable in the global memory 
+space.  On the Fermi GPU, the global variable will be held 
+in the shared L2 cache and so the {\tt atomicCAS} operation 
+will be performed efficiently with minimal latency.
+
+\begin{table}
+\caption{Implementation of floating point atomic addition
+        (code supplied by Jonathan Cohen of NVIDIA Research)}
+\label{tab:atomic}
+\begin{verbatim}
+float atomicAdd(float *addr, float val) {
+  float old = *addr, old2;
+
+  do {
+       old2 = old;
+       old  = int_as_float(atomicCAS( (int*)addr,
+                                      float_as_int(old2),
+                                      float_as_int(old2+val) ));
+  } while( old2 != old );
+
+  return old;
+}
+\end{verbatim}
+\end{table}
+
+\newpage
+
+\section{Register pressure}
+
+One concern raised by Jamil Appa, based on his experience with 
+porting CFD codes to CUDA, is that each thread can have only a very 
+limited of registers, 128 on the GT200 series and only 64 on Fermi
+(even though each core has 2048 registers on the GT200 and 1024 
+on Fermi).
+
+If more than this number are needed then they ``spill over'' into 
+so-called ``local memory'' which resides in the main global memory 
+with all of the limitations in latency and bandwidth that entails.
+With Fermi, this is mitigated only slightly through the use of the 
+16kB L1 cache, corresponding to 2k DP variables.  If there are 
+128 active threads, this corresponds to just 16 DP variables per
+thread, so this isn't much of an addition to the register set.
+
+To cope with this, we may need to change the way in which some kernels 
+are implemented.  At present, for each element in the active set, 
+the thread copies the required input argument values into registers
+and then calls the user-supplied element function.  For the viscous 
+edge calculation in HYDRA, this would require two $7\!\times\! 4$
+``gradient'' arrays, plus four vectors of size $7$ for the flow 
+variables and residuals at the two nodes, and hence at least 84 
+DP variables, neglecting the registers required to perform the 
+calculations.
+
+For read-only arguments (such as the gradient arrays in the viscous 
+edge calculation) it would be better to simply pass in the pointer
+to the shared-memory location.
+
+For increment arguments, using shared-memory pointers would raise 
+the problem of data dependencies.  When using thread coloring, it 
+would be necessary to wrap it around the entire element calculation,
+rather than simply the incrementing operation as at present. Because 
+of this, it might be best to re-order the set elements to minimise
+the number of different colors within each warp.  Doing this would
+disrupt the identity mapping for direct data references, which means
+an additional mapping would need to be stored and fetched.
+
+Alternatively, the use of atomic updates would either require code 
+transformation of the user-supplied element function, or the user 
+would have to use a special function to perform the increment and 
+this would then be mapped to the required atomic operations.
+
+\newpage
+
+\section{Auto-tuning}
+
+The more I get into the details of implementation, the more I see
+the possibility for different methods of implementation, as well
+as uncertainty in the optimal values for various parameters which
+need to be specified.   To optimise the run-time performance, I 
+think it will be essential to use auto-tuning techniques, building 
+on ideas already used by packages such as ATLAS and FFTW.  To
+emphasise this point, I don't think I am talking about squeezing 
+out an extra 10\% of performance; I think it is more likely that
+auto-tuning will double the performance.
+
+
+Here I list some of the choices to be optimised, and the tradeoffs
+they involve:
+\begin{itemize}
+\item
+Size of block partition
+
+To maximise date reuse within eack block, the natural choice is 
+to make the block partition as large as possible subject to the
+constraint that it fits inside the shared memory.  However, 
+making it a bit smaller would allow multiple blocks to run 
+concurrently on the same multiprocessor, and the run-time 
+scheduler would then naturally overlap I/O for one block
+with computation for another.
+
+\item
+Number of threads per block
+
+One option is to have one thread per set element, giving the 
+run-time scheduler the maximum freedom.  However, this increases
+the cost of thread synchronisation, might run into difficulties 
+with the total register usage, and doesn't amortise startup 
+costs over multiple elements.
+
+\item
+Thread coloring or atomic increments
+
+A tradeoff between synchronisation costs and idle threads, 
+versus the cost of hardware-assisted atomic operations.
+
+\item
+Use of registers or shared-memory pointers
+
+This was explained in the previous section
+\end{itemize}
+
+
+These choices exist for each parallel loop.  What is optimal 
+for one loop may not be optimal for another.
+
+Optimisation strategies which could be used include:
+\begin{itemize}
+\item
+Brute force
+
+Specify a small set of possible values for the integer variables
+(block partition size and number of threads per block) and then 
+systematically try every combination of choices and values.
+
+This would be particularly applicable if, perhaps through 
+profiling, the user can identify the most important loop(s).
+
+\item
+Genetic algorithms (or other stochastic method)
+
+Brute force could work at the level of a single loop.  To handle
+lots of loops, one either uses brute force on each one, one at 
+a time, or one could perhaps use a higher-dimensional method
+like GA to optimise them all at the same time.
+
+\item
+Run-time optimisation
+
+In some cases, the optimal choice/value may depend on the specifics 
+of the problem being solved, i.e.~may depend on the run-time data.
+If an application requires many timesteps or iterations, it could 
+be feasible at the beginning to try different choices/values for
+different timesteps/iterations and monitor the execution times to
+decide on the best combination.
+
+\item
+Machine learning
+
+Maybe Mike O'Boyle could use his machine learning approach to 
+anticipate the best choice for parallel loop each based on its 
+defining characteristics.
 
 \end{itemize}
+
+
+
+\newpage
+
+\section{OpenMP and SSE/AVX implementation}
+
+
+Intel's Nehalem CPUs have a separate on-chip 256KB L2 cache for each 
+core, and seem to have at least 200GB/s bandwidth from the L2 cache 
+to the core.
+
+Because of this, I think the simplest approach to an OpenMP 
+implementation is to follow a very similar approach to the GPU 
+implementation but with a single thread for each mini-partition. 
+That way, there's no data conflict within a mini-partition, and 
+the OpenMP parallelism would apply to the loop over all of the 
+mini-partitions of a particular colour. 
+The implementation would be simpler than the CUDA implementation 
+since no global$\rightarrow$local renumbering would be required, 
+or any of the low-level thread colouring. 
+
+A similar strategy could be used for SSE/AVX vectorization as well, 
+with each SSE/AVX vector element handling a different mini-partition. 
+The mini-partitions would need to be reduced in size so that the 
+required number (up to 8 for single precision computation in AVX) 
+can fit into the 256KB L2 cache.
+
+There is a potentially irritating implementation detail concerning the 
+fact that the set size will usually not be an exact multiple of the number 
+of threads times the length of the SSE/AVX vectors.  By using recursive 
+bisection, the number of partitions can be made a power of 2, and their 
+size made equal to within a maximum discrepancy of 1.  I think it should 
+be possible to colour the mini-partitions so that the number of 
+mini-partitions of each colour is a multiple of the length of the SSE/AVX 
+vectors.  The only problem then is that the final SSE/AVX vector for
+each mini-partition may not be complete, due to the difference in size of
+the mini-partitions.  I think this can be dealt with by replicating one 
+of the final elements to fill the empty bits of the vector.  The redundant 
+computations will not affect the final outcome.  The same trick can be 
+used to replicate an entire mini-partition if the number of mini-partitions 
+of one colour is not a multiple of the length of the SSE/AVX vectors. 
+
+This should result in very clean, efficient OpenMP SSE/AVX code.  The 
+complexity will all be hidden in the plan construction.
+
 
 
 \end{document}

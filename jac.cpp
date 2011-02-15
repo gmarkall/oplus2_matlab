@@ -40,6 +40,10 @@
 #include <string.h>
 #include <math.h>
 
+// global constants
+
+float alpha;
+
 
 // define OP diagnostics level
 
@@ -80,8 +84,8 @@ int main(int argc, char **argv){
   int   nnode, nedge, n, e;
   float dx;
 
-  op_set nodes,    edges;
-  op_ptr nodes_id, edges_id, pedge1, pedge2;
+  op_set nodes, edges;
+  op_ptr pedge1, pedge2;
   op_dat p_A, p_r, p_u, p_du;
 
   nnode = (NN-1)*(NN-1);
@@ -91,8 +95,8 @@ int main(int argc, char **argv){
   int    *p1 = (int *)malloc(sizeof(int)*nedge);
   int    *p2 = (int *)malloc(sizeof(int)*nedge);
 
-  float *xe  = (float *)malloc(sizeof(float)*2*nedge);
-  float *xn  = (float *)malloc(sizeof(float)*2*nnode);
+  float  *xe = (float *)malloc(sizeof(float)*2*nedge);
+  float  *xn = (float *)malloc(sizeof(float)*2*nnode);
 
   double *A  = (double *)malloc(sizeof(double)*nedge);
   float  *r  = (float *)malloc(sizeof(float)*nnode);
@@ -148,8 +152,8 @@ int main(int argc, char **argv){
 
   // declare sets, pointers, and datasets
 
-  op_decl_set(nnode,2,xn, nodes,"nodes", nodes_id,"nodes_id");
-  op_decl_set(nedge,2,xe, edges,"edges", edges_id,"edges_id");
+  op_decl_set(nnode, nodes,"nodes");
+  op_decl_set(nedge, edges,"edges");
 
   op_decl_ptr(edges,nodes,1,p1, pedge1,"pedge1");
   op_decl_ptr(edges,nodes,1,p2, pedge2,"pedge2");
@@ -159,20 +163,23 @@ int main(int argc, char **argv){
   op_decl_dat(nodes,1,OP_FLOAT, u,  p_u, "p_u" );
   op_decl_dat(nodes,1,OP_FLOAT, du, p_du,"p_du");
 
+  alpha = 1.0f;
+  op_decl_const(1,OP_FLOAT,&alpha,"alpha");
+
   op_diagnostic_output();
 
   // main iteration loop
 
   for (int iter=0; iter<NITER; iter++) {
     op_par_loop_3(res,"res", edges,
-                  p_A, -1,edges_id, 1,OP_DOUBLE,OP_READ,
-                  p_u,  0,pedge2,   1,OP_FLOAT, OP_READ,
-                  p_du, 0,pedge1,   1,OP_FLOAT, OP_INC);
+                  p_A, -1,OP_ID,  1,OP_DOUBLE,OP_READ,
+                  p_u,  0,pedge2, 1,OP_FLOAT, OP_READ,
+                  p_du, 0,pedge1, 1,OP_FLOAT, OP_INC);
 
     op_par_loop_3(update,"update", nodes,
-                  p_r, -1,nodes_id, 1,OP_FLOAT,OP_READ,
-                  p_du,-1,nodes_id, 1,OP_FLOAT,OP_RW,
-                  p_u, -1,nodes_id, 1,OP_FLOAT,OP_INC);
+                  p_r, -1,OP_ID, 1,OP_FLOAT,OP_READ,
+                  p_du,-1,OP_ID, 1,OP_FLOAT,OP_RW,
+                  p_u, -1,OP_ID, 1,OP_FLOAT,OP_INC);
   }
 
   // print out results

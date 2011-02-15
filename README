@@ -12,6 +12,8 @@ op_seq.h         -- header for single-thread CPU execution
 
 op_seq.c         -- routines for single-thread CPU execution
 
+op2_seq_gen.m    -- MATLAB routine to create op_seq.h
+
 ---------------------------------------------------------------------------
 
 Makefile         -- Makefile, based on standard CUDA SDK template
@@ -21,11 +23,11 @@ op2.m            -- prototype pre-processor, written in MATLAB
 
 jac_op.cpp       -- main program for CUDA execution, created by op2.m
 
+jac_kernels.cu   -- CUDA file to include CUDA kernel files, created by op2.m
+
 res_kernel.cu    -- kernel function for CUDA execution, created by op2.m
 
 update_kernel.cu -- kernel function for CUDA execution, created by op2.m
-
----------------------------------------------------------------------------
 
 op_lib.cu        -- OP routines library file for CUDA execution
 
@@ -33,6 +35,14 @@ op_lib.cu        -- OP routines library file for CUDA execution
 
 op_datatypes.h   -- header used by almost all files
 
+
+---------------------------------------------------------------------------
+
+op2.tex/pdf      -- project notes
+
+user.tex/pdf     -- documentation for users
+
+projects.tex/pdf -- possible student mini-projects
 
 
 ---------------------------------------------------------------------------
@@ -49,6 +59,7 @@ op2("jac")
 in MATLAB, to produce the files
 
 jac_op.cpp
+jac_kernels.cu
 res_kernel.cu
 update_kernel.cu
 

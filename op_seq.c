@@ -78,23 +78,12 @@ int type_error(int *, op_datatype type) {
 void op_init(int argc, char **argv){
 }
 
-void op_decl_set(int size, int dim, float *x, op_set &set, char const *name,
-                                              op_ptr &ptr, char const *ptrname){
+void op_decl_set(int size, op_set &set, char const *name){
   set.size = size;
-  set.dim  = dim;
-  set.x    = x;
   set.name = name;
 
   set.index = OP_set_index;
   OP_set_list[OP_set_index++] = &set;
-
-  ptr.from = set;
-  ptr.to   = set;
-  ptr.dim  = 0;
-  ptr.name = ptrname;
-
-  ptr.index = OP_ptr_index;
-  OP_ptr_list[OP_ptr_index++] = &ptr;
 }
 
 
@@ -136,7 +125,6 @@ void op_decl_dat(op_set set, int dim, op_datatype type, T *dat, op_dat &data, ch
   OP_dat_list[OP_dat_index++] = &data;
 }
 
-
 void op_decl_ddat(op_set set, int dim, op_datatype type, double *dat, op_dat &data, char const *name){
   op_decl_dat(set, dim, type, dat, data, name);
 }
@@ -149,6 +137,26 @@ void op_decl_fdat(op_set set, int dim, op_datatype type, float *dat, op_dat &dat
 
 void op_decl_idat(op_set set, int dim, op_datatype type, int *dat, op_dat &data, char const *name){
   op_decl_dat(set, dim, type, dat, data, name);
+}
+
+
+template <class T>
+void op_decl_const(int dim, op_datatype type, T *dat, char const *name){
+  if (type_error(dat,type)) {
+    printf("incorrect type specified for constant \"%s\" \n",name);  exit(1);
+  }
+}
+
+void op_decl_dconst(int dim, op_datatype type, double *dat, char const *name){
+     op_decl_const(dim, type, dat, name);
+}
+
+void op_decl_fconst(int dim, op_datatype type, float *dat, char const *name){
+     op_decl_const(dim, type, dat, name);
+}
+
+void op_decl_iconst(int dim, op_datatype type, int *dat, char const *name){
+     op_decl_const(dim, type, dat, name);
 }
 
 
