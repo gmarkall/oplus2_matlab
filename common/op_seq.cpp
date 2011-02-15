@@ -45,19 +45,21 @@
 int OP_set_index=0,
     OP_ptr_index=0,
     OP_dat_index=0,
-    OP_nplans   =0;
+    OP_nplans   =0,
+    OP_diags    =0;
 
 op_set  * OP_set_list[10];
 op_ptr  * OP_ptr_list[10];
 op_dat  * OP_dat_list[10];
 op_plan   OP_plans[100];
-
+op_kernel OP_kernels[100];
 
 //
 // OP functions
 //
 
-void op_init(int argc, char **argv){
+void op_init(int argc, char **argv, int diags){
+  OP_diags = diags;
 }
 
 void op_decl_set(int size, op_set &set, char const *name){
@@ -97,7 +99,7 @@ void op_fetch_data(op_dat dat){
 }
 
 void op_diagnostic_output(){
-  if (OP_DIAGS > 1) {
+  if (OP_diags > 1) {
     printf("\n  OP diagnostic output\n");
     printf(  "  --------------------\n");
 
@@ -123,6 +125,9 @@ void op_diagnostic_output(){
     }
     printf("\n");
   }
+}
+
+void op_timing_output() {
 }
 
 void op_exit(){

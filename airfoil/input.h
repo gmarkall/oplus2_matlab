@@ -1,5 +1,5 @@
-void input(int maxnode,int maxcell,int maxedge, int &nnode, int &ncell, int &nedge,
-           float *x, float *q, int *cell, int *edge, int *ecell, int *boun) {
+void input(int &nnode, int &ncell, int &nedge, float * &x, float * &q,
+           int * &cell, int * &edge, int * &ecell, int * &boun) {
 
   float p,r,u,e, xt,yt;
 
@@ -12,18 +12,20 @@ void input(int maxnode,int maxcell,int maxedge, int &nnode, int &ncell, int &ned
 
 // read in data from grid file
 
+  printf("reading in grid data\n");
+
   FILE *fp;
   fp = fopen("grid.dat","r");
 
   fscanf(fp,"%d %d %d \n",&nnode, &ncell, &nedge);
   ncell = ncell+1;   // far-field dummy cell
 
-  // printf("maxnode = %d, maxcell = %d, maxedge = %d \n",maxnode,maxcell,maxedge);
-  // printf("nnode   = %d, ncell   = %d, nedge   = %d \n",nnode,ncell,nedge);
-
-  if(nnode>maxnode) {printf("error:maxnode too small\n"); exit(1);}
-  if(ncell>maxcell) {printf("error:maxcell too small\n"); exit(1);}
-  if(nedge>maxedge) {printf("error:maxedge too small\n"); exit(1);}
+  x     = (float *) malloc(2*nnode*sizeof(float));
+  q     = (float *) malloc(4*ncell*sizeof(float));
+  cell  = (int *) malloc(4*ncell*sizeof(int));
+  edge  = (int *) malloc(2*nedge*sizeof(int));
+  ecell = (int *) malloc(2*nedge*sizeof(int));
+  boun  = (int *) malloc(  nedge*sizeof(int));
 
   for (int n=0; n<nnode; n++)
     fscanf(fp,"%f %f \n",&x[2*n], &x[2*n+1]);

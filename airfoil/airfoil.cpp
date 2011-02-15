@@ -43,21 +43,9 @@
 #include <string.h>
 #include <math.h>
 
-
 // global constants
 
 float gam, gm1, cfl, eps, mach, alpha;
-
-// define OP diagnostics level
-
-#define OP_DIAGS 1
-
-/*
-   0            none
-   1 or above   error-checking
-   2 or above   report additional info
-*/
-
 
 //
 // OP header file
@@ -79,15 +67,11 @@ float gam, gm1, cfl, eps, mach, alpha;
 
 int main(int argc, char **argv){
 
-#define maxnode  9900
-#define maxcell (9702+1)
-#define maxedge 19502
-
-  int    ecell[2*maxedge], boun[maxedge], edge[2*maxedge], cell[4*maxcell];
-  float x[2*maxnode],q[4*maxcell],qold[4*maxcell],adt[maxcell],res[4*maxcell];
+  int    *ecell, *boun, *edge, *cell;
+  float  *x, *q, *qold, *adt, *res;
 
   int    nnode,ncell,nedge, niter;
-  float rms;
+  float  rms;
 
   op_set nodes, edges, cells;
   op_ptr pedge, pecell, pcell;
@@ -95,7 +79,11 @@ int main(int argc, char **argv){
 
   // read in grid and flow data
 
-  input(maxnode,maxcell,maxedge,nnode,ncell,nedge,x,q,cell,edge,ecell,boun);
+  
+  input(nnode,ncell,nedge,x,q,cell,edge,ecell,boun);
+  qold = (float *) malloc(4*ncell*sizeof(float));
+  res  = (float *) malloc(4*ncell*sizeof(float));
+  adt  = (float *) malloc(  ncell*sizeof(float));
 
   // initialise residual
 
@@ -103,7 +91,7 @@ int main(int argc, char **argv){
 
   // OP initialisation
 
-  op_init(argc,argv);
+  op_init(argc,argv,2);
 
   // declare sets, pointers, datasets and global constants
 
@@ -133,7 +121,7 @@ int main(int argc, char **argv){
 
 // main time-marching loop
 
-  niter = 10;
+  niter = 1000;
 
   for(int iter=1; iter<=niter; iter++) {
 
@@ -188,9 +176,10 @@ int main(int argc, char **argv){
 
     rms = sqrt(rms/(float) ncell);
 
-    //    if (iter%100 == 0)
+    if (iter%100 == 0)
       printf(" %d  %10.5e \n",iter,rms);
   }
 
+  op_timing_output();
 }
 

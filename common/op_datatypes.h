@@ -28,18 +28,31 @@
 */
 
 
-#ifndef OP_DIAGS
-#define OP_DIAGS 6
-#endif
-
-
 //
 // OP datatypes
 //
 
-
 #ifndef OP_DATATYPES
 #define OP_DATATYPES
+
+//
+// OP diagnostics level; defined in op_seq.cpp/op_lib.cu and set in op_init
+//
+
+extern int OP_diags;
+
+/*
+   0            none
+   1 or above   error-checking
+   2 or above   info on plan construction
+   3 or above   report execution of parallel loops
+   4 or above   report use of old plans
+   7 or above   report positive checks in op_plan_check
+*/
+
+//
+// enum list for op_par_loop
+//
 
 enum op_access   { OP_READ, OP_WRITE, OP_RW, OP_INC, OP_MIN, OP_MAX };
 
@@ -135,8 +148,15 @@ typedef struct {
   int        *ncolblk;  // number of blocks for each color
   int        *blkmap;   // block mapping
   int         nshared;  // bytes of shared memory required
+  float       transfer; // bytes of data transfer per kernel call
 } op_plan;
 
+typedef struct {
+  char const *name;     // name of kernel function
+  int         count;    // number of times called
+  float       time;     // total execution time
+  float       transfer; // total transfer
+} op_kernel;
 
 //
 //  min / max definitions
@@ -160,7 +180,7 @@ typedef struct {
 // OP function prototypes
 //
 
-void op_init(int, char **);
+void op_init(int, char **, int);
 
 void op_decl_set(int, op_set &, char const *);
 
@@ -189,6 +209,8 @@ void op_decl_const(int dim, char const *type, T *dat, char const *name){
 void op_fetch_data(op_dat);
 
 void op_diagnostic_output();
+
+void op_timing_output();
 
 void op_exit();
 

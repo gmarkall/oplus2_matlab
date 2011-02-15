@@ -4,6 +4,10 @@
 #include <string.h>                                                         
 #include <math.h>                                                           
 
+#ifdef _OPENMP
+#include <omp.h>
+#endif
+
 #include "op_datatypes.h"
 
 #define OP_x86

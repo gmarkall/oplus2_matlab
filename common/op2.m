@@ -80,6 +80,8 @@ for target = OP_targets
 %
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
+nker = -1;
+
 for narg = 1: nargin
   nkernels = 0;
 
@@ -118,6 +120,7 @@ for narg = 1: nargin
     end
 
     nkernels = nkernels + 1;
+    nker     = nker + 1;
     fn_name  = C{1};
     disp(sprintf('\n  processing kernel %d (%s) with %d arguments',nkernels,fn_name,nargs));
 
@@ -262,25 +265,41 @@ for narg = 1: nargin
                           '  int   *ncolors,     ',...
                           '  int   *colors) {    ',' ');
     else
-      file = strvcat(file,'  int   set_size ) {',' ');
+      if (target==OP_CUDA)
+        file = strvcat(file,'  int   set_size ) {',' ');
+      elseif (target==OP_x86)
+        file = strvcat(file,'  int   begin,    ',...
+                            '  int   finish ) {',' ');
+      end
     end
 
-    for m = 1:nargs
-      if (ptrs(m)==OP_GBL & accs(m)~=OP_READ)
-        line = '  TYP ARG_l[DIM];';
-        file = strvcat(file,rep(line,m));
-        if (accs(m)==OP_INC)
-          line = '  for (int d=0; d<DIM; d++) ARG_l[d]=ZERO_TYP;';
+    if (target==OP_CUDA)
+      for m = 1:nargs
+        if (ptrs(m)==OP_GBL & accs(m)~=OP_READ)
+          line = '  TYP ARG_l[DIM];';
+          file = strvcat(file,rep(line,m));
+          if (accs(m)==OP_INC)
+            line = '  for (int d=0; d<DIM; d++) ARG_l[d]=ZERO_TYP;';
+          else
+            line = '  for (int d=0; d<DIM; d++) ARG_l[d]=ARG[d];';
+          end
+          file = strvcat(file,rep(line,m));
         else
-          line = '  for (int d=0; d<DIM; d++) ARG_l[d]=ARG[d];';
+          if (ptrs(m)==OP_PTR & accs(m)==OP_INC)
+            line = '  TYP ARG_l[DIM];';
+            file = strvcat(file,rep(line,m));
+          end
         end
-        file = strvcat(file,rep(line,m));
-      else
+      end
+
+    elseif (target==OP_x86)
+      for m = 1:nargs
         if (ptrs(m)==OP_PTR & accs(m)==OP_INC)
           line = '  TYP ARG_l[DIM];';
           file = strvcat(file,rep(line,m));
         end
       end
+
     end
 
 %
@@ -437,7 +456,7 @@ for narg = 1: nargin
                                 '       n<set_size; n+=blockDim.x*gridDim.x) {');
       elseif (target==OP_x86)
         file = strvcat(file,' ','  // process set elements',' ', ...
-                                '  for (int n=0; n<set_size; n++) {');
+                                '  for (int n=begin; n<finish; n++) {');
       end
     end
 
@@ -453,7 +472,7 @@ for narg = 1: nargin
         line = blanks(length(line));
       end
       if (ptrs(m)==OP_GBL)
-        if (accs(m)==OP_READ)
+        if (accs(m)==OP_READ || target==OP_x86 )
           line = [ line 'ARG,' ];
         else
           line = [ line 'ARG_l,' ];
@@ -529,30 +548,18 @@ for narg = 1: nargin
 %
 % global reduction
 %
-    if (reduct)
+    if (target==OP_CUDA & reduct)
       file = strvcat(file,' ','  // global reductions',' ');
       for m = 1:nargs
         if (ptrs(m)==OP_GBL & accs(m)~=OP_READ)
-          if (target==OP_CUDA)
-            if(accs(m)==OP_INC)
-              line = '  for(int d=0; d<DIM; d++) op_reduction<OP_INC>(&ARG[d],ARG_l[d]);';
-            elseif (accs(m)==OP_MIN)
-              line = '  for(int d=0; d<DIM; d++) op_reduction<OP_MIN>(&ARG[d],ARG_l[d]);';
-            elseif (accs(m)==OP_MAX)
-              line = '  for(int d=0; d<DIM; d++) op_reduction<OP_MAX>(&ARG[d],ARG_l[d]);';
-            else
-              error('internal error: invalid reduction option')
-            end
-          elseif (target==OP_x86)
-            if(accs(m)==OP_INC)
-              line = '  for(int d=0; d<DIM; d++) ARG[d] += ARG_l[d];';
-            elseif (accs(m)==OP_MIN)
-              line = '  for(int d=0; d<DIM; d++) ARG[d]  = MIN(ARG[d],ARG_l[d]);';
-            elseif (accs(m)==OP_MAX)
-              line = '  for(int d=0; d<DIM; d++) ARG[d]  = MAX(ARG[d],ARG_l[d]);';
-            else
-              error('internal error: invalid reduction option')
-            end
+          if(accs(m)==OP_INC)
+            line = '  for(int d=0; d<DIM; d++) op_reduction<OP_INC>(&ARG[d],ARG_l[d]);';
+          elseif (accs(m)==OP_MIN)
+            line = '  for(int d=0; d<DIM; d++) op_reduction<OP_MIN>(&ARG[d],ARG_l[d]);';
+          elseif (accs(m)==OP_MAX)
+            line = '  for(int d=0; d<DIM; d++) op_reduction<OP_MAX>(&ARG[d],ARG_l[d]);';
+          else
+            error('internal error: invalid reduction option')
           end
           file = strvcat(file,rep(line,m));
         end
@@ -580,7 +587,7 @@ for narg = 1: nargin
                 ' char const *typ%d, op_access acc%d'];
       end
       line = rep(sprintf(line, m-1,m-1,m-1,m-1,m-1,m-1),m);
-    
+
       if (m<nargs)
         file = strvcat(file,[line ',']);
       else
@@ -644,7 +651,7 @@ for narg = 1: nargin
       file = strvcat(file,line);
 
       file = strvcat(file,' ',...
-       '  if (OP_DIAGS>1) {              ',...
+       '  if (OP_diags>2) {              ',...
       ['    printf(" kernel routine with indirection: ' fn_name ' \n");'],...
        '  }                              ');
 
@@ -653,11 +660,47 @@ for narg = 1: nargin
 %
     else
       file = strvcat(file,' ',...
-       '  if (OP_DIAGS>1) {              ',...
+       '  if (OP_diags>2) {              ',...
       ['    printf(" kernel routine w/o indirection:  ' fn_name ' \n");'],...
        '  }                              ');
     end
 
+%
+% start timing
+%
+    file = strvcat(file,' ','  // initialise timers                    ',...
+                        ' ','  double cpu_t1, cpu_t2, wall_t1, wall_t2;',...
+                            '  timers(&cpu_t1, &wall_t1);              ');
+
+%
+% set number of threads in x86 execution and create arrays for reduction
+%
+    if (target==OP_x86)
+      file = strvcat(file,' ','  // set number of threads',' ',...
+                   '#ifdef _OPENMP                          ',...
+                   '  int nthreads = omp_get_max_threads( );',...
+                   '#else                                   ',...
+                   '  int nthreads = 1;                     ',...
+                   '#endif                                  ');
+
+      if (reduct)
+	file = strvcat(file,' ',...
+             '  // allocate and initialise arrays for global reduction');
+        for m = 1:nargs
+          if (ptrs(m)==OP_GBL & accs(m)~=OP_READ)
+            line = '  TYP ARG_l[DIM+64*64];';
+            file = strvcat(file,' ',rep(line,m),...
+                           '  for (int thr=0; thr<nthreads; thr++)');
+            if (accs(m)==OP_INC)
+              line = '    for (int d=0; d<DIM; d++) ARG_l[d+thr*64]=ZERO_TYP;';
+            else
+              line = '    for (int d=0; d<DIM; d++) ARG_l[d+thr*64]=ARGh[d];';
+            end
+            file = strvcat(file,rep(line,m));
+          end
+        end
+      end
+    end
 %
 % transfer constants
 %
@@ -751,7 +794,7 @@ for narg = 1: nargin
         '  int block_offset = 0;          ',' ',...
         '  for (int col=0; col<(*Plan).ncolors; col++) { ',' ',...
         '    int nblocks = (*Plan).ncolblk[col];         ',...
-        '    int nthread = 64;                           ');
+        '    int nthread = OP_block_size;                ');
 
        if (reduct)
  	file = strvcat(file,'    int nshared = MAX((*Plan).nshared,reduct_size*nthread/2);');
@@ -795,7 +838,8 @@ for narg = 1: nargin
         '  // execute plan                ',' ',...
         '  int block_offset = 0;          ',' ',...
         '  for (int col=0; col<(*Plan).ncolors; col++) { ',...
-        '    int nblocks = (*Plan).ncolblk[col];         ',...
+        '    int nblocks = (*Plan).ncolblk[col];         ',' ',...
+        '#pragma omp parallel for',...
         '    for (int blockIdx=0; blockIdx<nblocks; blockIdx++)');
 
        file = strvcat(file,['     op_x86_' fn_name '( blockIdx,']);
@@ -830,14 +874,16 @@ for narg = 1: nargin
 %
     else
 
-      if (target==OP_CUDA)
-        file = strvcat(file,' ','  // execute plan                ',' ');
+      file = strvcat(file,' ','  // execute plan             ',' ',...
+                              '  int nblocks = 100;          ',...
+                              '  int nthread = OP_block_size;');
 
+      if (target==OP_CUDA)
         if (reduct)
-          file = strvcat(file,'  int nshared = reduct_size*64/2;',' ');
-          line = ['  op_cuda_' fn_name '<<<100,64,nshared>>>( '];
+          file = strvcat(file,'  int nshared = reduct_size*nthread/2;',' ');
+          line = ['  op_cuda_' fn_name '<<<nblocks,nthread,nshared>>>( '];
         else
-          line = ['  op_cuda_' fn_name '<<<100,64>>>( '];
+          line = ['  op_cuda_' fn_name '<<<nblocks,nthread>>>( '];
         end
 
         for m = 1:nargs
@@ -846,20 +892,26 @@ for narg = 1: nargin
         end
 
         file = strvcat(file,[ line 'set.size );'],' ',... 
+          '  cutilSafeCall(cudaThreadSynchronize());                  ', ...
          ['  cutilCheckMsg("op_cuda_', fn_name ' execution failed\n");']);
 
       elseif (target==OP_x86)
-        file = strvcat(file,' ','  // execute plan                ',' ');
-
-        line = ['  op_x86_' fn_name '( '];
+        file = strvcat(file,'#pragma omp parallel for                     ',...
+                            '  for (int thr=0; thr<nthreads; thr++) {         ',...
+                            '    int start  = (set.size* thr   )/nthreads;', ...
+                            '    int finish = (set.size*(thr+1))/nthreads;');
+        line = ['    op_x86_' fn_name '( '];
 
         for m = 1:nargs
-          file = strvcat(file,rep([line '(TYP *) ARG.dat,'],m));
+          if(ptrs(m)==OP_GBL & accs(m)~=OP_READ);
+            file = strvcat(file,rep([line 'ARG_l + thr*64,'],m));
+          else
+            file = strvcat(file,rep([line '(TYP *) ARG.dat,'],m));
+          end
           line = blanks(length(line));
         end
 
-        file = strvcat(file,[ line 'set.size );']);
-
+        file = strvcat(file,[ line 'start, finish );'],'  }');
       end
     end
 
@@ -877,7 +929,57 @@ for narg = 1: nargin
       end
     end
 
-    file = strvcat(file,'} ',' ');
+%
+% combine reduction data from multiple OpenMP threads
+%
+    if (target==OP_x86 && reduct)
+        file = strvcat(file,' ','  // combine reduction data');
+      for m=1:nargs
+        if(ptrs(m)==OP_GBL & accs(m)~=OP_READ);
+          file = strvcat(file,' ','  for (int thr=0; thr<nthreads; thr++)');
+          if(accs(m)==OP_INC)
+            line = '    for(int d=0; d<DIM; d++) ARGh[d] += ARG_l[d+thr*64];';
+          elseif (accs(m)==OP_MIN)
+            line = '    for(int d=0; d<DIM; d++) ARGh[d]  = MIN(ARGh[d],ARG_l[d+thr*64]);';
+          elseif (accs(m)==OP_MAX)
+            line = '    for(int d=0; d<DIM; d++) ARGh[d]  = MAX(ARGh[d],ARG_l[d+thr*64]);';
+          else
+            error('internal error: invalid reduction option')
+          end
+          file = strvcat(file,rep(line,m));
+        end
+      end
+    end
+
+%
+% update kernel record
+%
+
+  file = strvcat(file,' ','  // update kernel record',' ',...
+           '  timers(&cpu_t2, &wall_t2);                                  ',...
+          ['  OP_kernels[' num2str(nker) '].name      = name;             '],...
+          ['  OP_kernels[' num2str(nker) '].count    += 1;                '],...
+          ['  OP_kernels[' num2str(nker) '].time     += wall_t2 - wall_t1;']);
+  if (ninds>0)
+    file = strvcat(file,...
+          ['  OP_kernels[' num2str(nker) '].transfer += (*Plan).transfer;']);
+  else
+
+    line = ['  OP_kernels[' num2str(nker) '].transfer += (float)set.size * '];
+
+    for m = 1:nargs
+      if(ptrs(m)~=OP_GBL)
+        if (accs(m)==OP_READ)
+          file = strvcat(file,rep([line 'ARG.size;'],m));
+        else
+          file = strvcat(file,rep([line 'ARG.size * 2.0f;'],m));
+        end
+      end
+    end
+  end
+
+  file = strvcat(file,'} ',' ');
+
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %
@@ -935,11 +1037,11 @@ for narg = 1: nargin
       ker_file3 = ' ';
     end
 
-      if (target==OP_CUDA)
-        ker_file3 = strvcat(ker_file3, ['#include "' fn_name '_kernel.cu"']);
-      elseif (target==OP_x86)
-        ker_file3 = strvcat(ker_file3, ['#include "' fn_name '_kernel.cpp"']);
-      end
+    if (target==OP_CUDA)
+      ker_file3 = strvcat(ker_file3, ['#include "' fn_name '_kernel.cu"']);
+    elseif (target==OP_x86)
+      ker_file3 = strvcat(ker_file3, ['#include "' fn_name '_kernel.cpp"']);
+    end
   end
 
 

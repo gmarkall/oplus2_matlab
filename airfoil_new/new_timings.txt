@@ -1,0 +1,267 @@
+mike@fermi:~/op2/airfoil_new$ ./script.sh
+PARTITION SIZE = 64
+BLOCK SIZE = 32   count     time     GB/s   kernel name 
+ --------------------------------------- 
+   1000    0.4449  72.3536   save_soln 
+   2000    2.1672  34.8148   adt_calc 
+   2000   16.1550  15.4245   res_calc 
+   2000    0.1509   2.9056   bres_calc 
+   2000    1.8498  60.8971   update 
+++++++++++++++++++++++++++++++++++++++++++++++++
+BLOCK SIZE = 64   count     time     GB/s   kernel name 
+ --------------------------------------- 
+   1000    0.3430  93.8423   save_soln 
+   2000    1.6919  44.5937   adt_calc 
+   2000   10.9069  22.8465   res_calc 
+   2000    0.1161   3.7777   bres_calc 
+   2000    1.8055  62.3920   update 
+++++++++++++++++++++++++++++++++++++++++++++++++
+BLOCK SIZE = 128   count     time     GB/s   kernel name 
+ --------------------------------------- 
+   1000    0.4051  79.4508   save_soln 
+   2000    1.8815  40.1007   adt_calc 
+   2000   10.5778  23.5573   res_calc 
+   2000    0.1155   3.7978   bres_calc 
+   2000    2.2909  49.1720   update 
+++++++++++++++++++++++++++++++++++++++++++++++++
+BLOCK SIZE = 256   count     time     GB/s   kernel name 
+ --------------------------------------- 
+   1000    0.4876  66.0109   save_soln 
+   2000    2.9621  25.4722   adt_calc 
+   2000   17.2940  14.4087   res_calc 
+   2000    0.1135   3.8646   bres_calc 
+   2000    2.5146  44.7971   update 
+++++++++++++++++++++++++++++++++++++++++++++++++
+BLOCK SIZE = 512   count     time     GB/s   kernel name 
+ --------------------------------------- 
+   1000    0.4427  72.7114   save_soln 
+   2000    7.3692  10.2386   adt_calc 
+   2000   33.1483   7.5172   res_calc 
+   2000    0.1421   3.0864   bres_calc 
+   2000    2.2645  49.7446   update 
+++++++++++++++++++++++++++++++++++++++++++++++++
+BLOCK SIZE = 1024  average thread colors  = 1.00 
+ shared memory required = 1.03 KB 
+ average data reuse     = 1.97 
+ total data transfer    = 38.63 MB 
+
+adt_calc_kernel.cu(151) : cutilCheckMsg() error : op_cuda_adt_calc execution failed
+ : too many resources requested for launch.
+++++++++++++++++++++++++++++++++++++++++++++++++
+================================================
+ 
+PARTITION SIZE = 128
+BLOCK SIZE = 32   count     time     GB/s   kernel name 
+ --------------------------------------- 
+   1000    0.4461  72.1475   save_soln 
+   2000    2.0316  37.0586   adt_calc 
+   2000   16.8909  14.6762   res_calc 
+   2000    0.2358   1.8583   bres_calc 
+   2000    1.8579  60.6304   update 
+++++++++++++++++++++++++++++++++++++++++++++++++
+BLOCK SIZE = 64   count     time     GB/s   kernel name 
+ --------------------------------------- 
+   1000    0.3430  93.8486   save_soln 
+   2000    1.4510  51.8855   adt_calc 
+   2000   10.4749  23.6655   res_calc 
+   2000    0.1569   2.7923   bres_calc 
+   2000    1.8079  62.3096   update 
+++++++++++++++++++++++++++++++++++++++++++++++++
+BLOCK SIZE = 128   count     time     GB/s   kernel name 
+ --------------------------------------- 
+   1000    0.4049  79.4889   save_soln 
+   2000    1.5044  50.0453   adt_calc 
+   2000    8.5448  29.0111   res_calc 
+   2000    0.1241   3.5301   bres_calc 
+   2000    2.2900  49.1914   update 
+++++++++++++++++++++++++++++++++++++++++++++++++
+BLOCK SIZE = 256   count     time     GB/s   kernel name 
+ --------------------------------------- 
+   1000    0.4707  68.3799   save_soln 
+   2000    1.8434  40.8415   adt_calc 
+   2000   10.4139  23.8042   res_calc 
+   2000    0.1242   3.5274   bres_calc 
+   2000    2.4621  45.7530   update 
+++++++++++++++++++++++++++++++++++++++++++++++++
+BLOCK SIZE = 512   count     time     GB/s   kernel name 
+ --------------------------------------- 
+   1000    0.4317  74.5510   save_soln 
+   2000    4.0323  18.6709   adt_calc 
+   2000   17.2628  14.3600   res_calc 
+   2000    0.1242   3.5297   bres_calc 
+   2000    2.2343  50.4167   update 
+++++++++++++++++++++++++++++++++++++++++++++++++
+BLOCK SIZE = 1024  average thread colors  = 1.00 
+ shared memory required = 2.03 KB 
+ average data reuse     = 1.98 
+ total data transfer    = 38.55 MB 
+
+adt_calc_kernel.cu(151) : cutilCheckMsg() error : op_cuda_adt_calc execution failed
+ : too many resources requested for launch.
+++++++++++++++++++++++++++++++++++++++++++++++++
+================================================
+ 
+PARTITION SIZE = 256
+BLOCK SIZE = 32   count     time     GB/s   kernel name 
+ --------------------------------------- 
+   1000    0.4451  72.3074   save_soln 
+   2000    2.0050  37.5076   adt_calc 
+   2000   35.0745   7.0492   res_calc 
+   2000    0.4082   1.0732   bres_calc 
+   2000    1.8570  60.6621   update 
+++++++++++++++++++++++++++++++++++++++++++++++++
+BLOCK SIZE = 64   count     time     GB/s   kernel name 
+ --------------------------------------- 
+   1000    0.3430  93.8330   save_soln 
+   2000    1.3772  54.6041   adt_calc 
+   2000   19.1414  12.9169   res_calc 
+   2000    0.2418   1.8115   bres_calc 
+   2000    1.8081  62.3023   update 
+++++++++++++++++++++++++++++++++++++++++++++++++
+BLOCK SIZE = 128   count     time     GB/s   kernel name 
+ --------------------------------------- 
+   1000    0.4041  79.6580   save_soln 
+   2000    1.3492  55.7368   adt_calc 
+   2000   11.6595  21.2056   res_calc 
+   2000    0.1681   2.6060   bres_calc 
+   2000    2.2928  49.1320   update 
+++++++++++++++++++++++++++++++++++++++++++++++++
+BLOCK SIZE = 256   count     time     GB/s   kernel name 
+ --------------------------------------- 
+   1000    0.4277  75.2562   save_soln 
+   2000    1.5788  47.6331   adt_calc 
+   2000    8.9414  27.6521   res_calc 
+   2000    0.1362   3.2169   bres_calc 
+   2000    2.3806  47.3186   update 
+++++++++++++++++++++++++++++++++++++++++++++++++
+BLOCK SIZE = 512   count     time     GB/s   kernel name 
+ --------------------------------------- 
+   1000    0.4234  76.0147   save_soln 
+   2000    2.5618  29.3549   adt_calc 
+   2000   10.4904  23.5689   res_calc 
+   2000    0.1305   3.3575   bres_calc 
+   2000    2.2153  50.8503   update 
+++++++++++++++++++++++++++++++++++++++++++++++++
+BLOCK SIZE = 1024  average thread colors  = 1.00 
+ shared memory required = 4.03 KB 
+ average data reuse     = 1.99 
+ total data transfer    = 38.50 MB 
+
+adt_calc_kernel.cu(151) : cutilCheckMsg() error : op_cuda_adt_calc execution failed
+ : too many resources requested for launch.
+++++++++++++++++++++++++++++++++++++++++++++++++
+================================================
+ 
+PARTITION SIZE = 512
+BLOCK SIZE = 32   count     time     GB/s   kernel name 
+ --------------------------------------- 
+   1000    0.4454  72.2715   save_soln 
+   2000    2.8870  26.0352   adt_calc 
+   2000   98.7318   2.5009   res_calc 
+   2000    0.7318   0.5985   bres_calc 
+   2000    1.8584  60.6159   update 
+++++++++++++++++++++++++++++++++++++++++++++++++
+BLOCK SIZE = 64   count     time     GB/s   kernel name 
+ --------------------------------------- 
+   1000    0.3451  93.2553   save_soln 
+   2000    1.7511  42.9236   adt_calc 
+   2000   51.0618   4.8357   res_calc 
+   2000    0.4060   1.0789   bres_calc 
+   2000    1.8067  62.3486   update 
+++++++++++++++++++++++++++++++++++++++++++++++++
+BLOCK SIZE = 128   count     time     GB/s   kernel name 
+ --------------------------------------- 
+   1000    0.4016  80.1374   save_soln 
+   2000    1.3263  56.6725   adt_calc 
+   2000   27.4500   8.9952   res_calc 
+   2000    0.2552   1.7166   bres_calc 
+   2000    2.3004  48.9696   update 
+++++++++++++++++++++++++++++++++++++++++++++++++
+BLOCK SIZE = 256   count     time     GB/s   kernel name 
+ --------------------------------------- 
+   1000    0.4284  75.1399   save_soln 
+   2000    1.3604  55.2491   adt_calc 
+   2000   16.4057  15.0507   res_calc 
+   2000    0.1833   2.3895   bres_calc 
+   2000    2.3843  47.2453   update 
+++++++++++++++++++++++++++++++++++++++++++++++++
+BLOCK SIZE = 512   count     time     GB/s   kernel name 
+ --------------------------------------- 
+   1000    0.4192  76.7783   save_soln 
+   2000    2.0191  37.2260   adt_calc 
+   2000   11.6200  21.2494   res_calc 
+   2000    0.1568   2.7940   bres_calc 
+   2000    2.2020  51.1562   update 
+++++++++++++++++++++++++++++++++++++++++++++++++
+BLOCK SIZE = 1024  average thread colors  = 1.00 
+ shared memory required = 8.03 KB 
+ average data reuse     = 1.99 
+ total data transfer    = 38.48 MB 
+
+adt_calc_kernel.cu(151) : cutilCheckMsg() error : op_cuda_adt_calc execution failed
+ : too many resources requested for launch.
+++++++++++++++++++++++++++++++++++++++++++++++++
+================================================
+ 
+PARTITION SIZE = 1024
+BLOCK SIZE = 32   count     time     GB/s   kernel name 
+ --------------------------------------- 
+   1000    0.4453  72.2790   save_soln 
+   2000    6.4807  11.5945   adt_calc 
+   2000   99.2646   2.4859   res_calc 
+   2000    1.1328   0.3866   bres_calc 
+   2000    1.8581  60.6266   update 
+++++++++++++++++++++++++++++++++++++++++++++++++
+BLOCK SIZE = 64   count     time     GB/s   kernel name 
+ --------------------------------------- 
+   1000    0.3475  92.6290   save_soln 
+   2000    3.5465  21.1874   adt_calc 
+   2000   51.0727   4.8315   res_calc 
+   2000    0.6069   0.7216   bres_calc 
+   2000    1.8211  61.8572   update 
+++++++++++++++++++++++++++++++++++++++++++++++++
+BLOCK SIZE = 128   count     time     GB/s   kernel name 
+ --------------------------------------- 
+   1000    0.3931  81.8816   save_soln 
+   2000    2.0620  36.4405   adt_calc 
+   2000   26.8812   9.1796   res_calc 
+   2000    0.3493   1.2538   bres_calc 
+   2000    2.2749  49.5174   update 
+++++++++++++++++++++++++++++++++++++++++++++++++
+BLOCK SIZE = 256   count     time     GB/s   kernel name 
+ --------------------------------------- 
+   1000    0.4285  75.1177   save_soln 
+   2000    1.4505  51.8026   adt_calc 
+   2000   15.5268  15.8925   res_calc 
+   2000    0.2426   1.8051   bres_calc 
+   2000    2.3848  47.2358   update 
+++++++++++++++++++++++++++++++++++++++++++++++++
+BLOCK SIZE = 512   count     time     GB/s   kernel name 
+ --------------------------------------- 
+   1000    0.4196  76.7114   save_soln 
+   2000    1.7078  43.9991   adt_calc 
+   2000   10.4827  23.5395   res_calc 
+   2000    0.2006   2.1834   bres_calc 
+   2000    2.1962  51.2915   update 
+++++++++++++++++++++++++++++++++++++++++++++++++
+BLOCK SIZE = 1024  average thread colors  = 1.00 
+ shared memory required = 16.03 KB 
+ average data reuse     = 2.00 
+ total data transfer    = 38.47 MB 
+
+adt_calc_kernel.cu(151) : cutilCheckMsg() error : op_cuda_adt_calc execution failed
+ : too many resources requested for launch.
+++++++++++++++++++++++++++++++++++++++++++++++++
+================================================
+ 
+
+Best results
+------------
+
+save_soln 0.34  94GB/s BLOCK_SIZE=64, almost any partition size
+adt_calc  1.33  57GB/s BLOCK_SIZE=128, PART_SIZE=512
+res_calc  8.54  29GB/s BLOCK_SIZE=128, PART_SIZE=128 
+bres_calc 0.12   4GB/s BLOCK_SIZE=64,  PART_SIZE=64
+update    1.81  62GB/s BLOCK_SIZE=64, almost any partition size
+--------------
+TOTAL    12.14

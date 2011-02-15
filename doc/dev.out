@@ -1,0 +1,25 @@
+\BOOKMARK [1][-]{section.1}{Plan construction}{}
+\BOOKMARK [2][-]{subsection.1.1}{indirect datasets}{section.1}
+\BOOKMARK [2][-]{subsection.1.2}{local renumbering}{section.1}
+\BOOKMARK [2][-]{subsection.1.3}{coloring}{section.1}
+\BOOKMARK [2][-]{subsection.1.4}{block mapping}{section.1}
+\BOOKMARK [2][-]{subsection.1.5}{rest}{section.1}
+\BOOKMARK [2][-]{subsection.1.6}{op\137plan struct}{section.1}
+\BOOKMARK [2][-]{subsection.1.7}{op\137plan\137check}{section.1}
+\BOOKMARK [1][-]{section.2}{op2.m preprocessor}{}
+\BOOKMARK [2][-]{subsection.2.1}{parsing the op\137par\137loop calls}{section.2}
+\BOOKMARK [2][-]{subsection.2.2}{the stub routine}{section.2}
+\BOOKMARK [2][-]{subsection.2.3}{the CUDA kernel routine}{section.2}
+\BOOKMARK [2][-]{subsection.2.4}{the new source file}{section.2}
+\BOOKMARK [2][-]{subsection.2.5}{the master kernels file}{section.2}
+\BOOKMARK [1][-]{section.3}{Global reductions}{}
+\BOOKMARK [2][-]{subsection.3.1}{Summation}{section.3}
+\BOOKMARK [2][-]{subsection.3.2}{Min/max reductions}{section.3}
+\BOOKMARK [1][-]{section.4}{User-defined datatypes}{}
+\BOOKMARK [2][-]{subsection.4.1}{Run-time type-checking}{section.4}
+\BOOKMARK [2][-]{subsection.4.2}{Zero element for incrementing}{section.4}
+\BOOKMARK [2][-]{subsection.4.3}{Global reductions}{section.4}
+\BOOKMARK [2][-]{subsection.4.4}{Alignment padding}{section.4}
+\BOOKMARK [2][-]{subsection.4.5}{Future MPI treatment}{section.4}
+\BOOKMARK [1][-]{section.5}{CUDA 3.0 notes: 20/02/10}{}
+\BOOKMARK [1][-]{section.6}{To do list}{}

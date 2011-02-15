@@ -42,32 +42,62 @@
 #endif
 
 #include "op_datatypes.h"
+#include "timers.h"
 
 //
 // global variables
 //
 
-int OP_set_index=0,
-    OP_ptr_index=0,
-    OP_dat_index=0,
-    OP_nplans   =0;
+int OP_set_index =0,
+    OP_ptr_index =0,
+    OP_dat_index =0,
+    OP_nplans    =0,
+    OP_diags     =0,
+    OP_part_size =0,
+    OP_block_size=512;
 
 op_set  * OP_set_list[10];
 op_ptr  * OP_ptr_list[10];
 op_dat  * OP_dat_list[10];
 op_plan   OP_plans[100];
+op_kernel OP_kernels[100];
 
 // arrays for global constants and reductions
 
 int   OP_consts_bytes=0,    OP_reduct_bytes=0;
 char *OP_consts_h, *OP_consts_d, *OP_reduct_h, *OP_reduct_d;
 
+
 //
 // OP functions
 //
 
-void op_init(int argc, char **argv){
+void op_init(int argc, char **argv, int diags){
   cutilDeviceInit(argc, argv);
+  OP_diags = diags;
+
+#ifdef OP_BLOCK_SIZE
+  OP_block_size = OP_BLOCK_SIZE;
+#endif
+#ifdef OP_PART_SIZE
+  OP_part_size = OP_PART_SIZE;
+#endif
+
+  for (int n=1; n<argc; n++) {
+    if (strncmp(argv[n],"OP_BLOCK_SIZE=",14)==0) {
+      OP_block_size = atoi(argv[n]+14);
+      printf("\n OP_block_size = %d \n", OP_block_size);
+    }
+    if (strncmp(argv[n],"OP_PART_SIZE=",13)==0) {
+      OP_part_size = atoi(argv[n]+13);
+      printf("\n OP_part_size  = %d \n", OP_part_size);
+    }
+  }
+
+  for (int n=0; n<100; n++) {
+    OP_kernels[n].count    = 0;
+    OP_kernels[n].transfer = 0.0f;
+  }
 }
 
 void op_decl_set(int size, op_set &set, char const *name){
@@ -111,7 +141,7 @@ void op_decl_dat_char(op_set set, int dim, char const *type, int size, char *dat
 //
 
 void op_diagnostic_output(){
-  if (OP_DIAGS > 1) {
+  if (OP_diags > 1) {
     printf("\n  OP diagnostic output\n");
     printf(  "  --------------------\n");
 
@@ -138,6 +168,21 @@ void op_diagnostic_output(){
     printf("\n");
   }
 }
+
+void op_timing_output() {
+  printf("\n  count     time     GB/s   kernel name ");
+  printf("\n --------------------------------------- \n");
+  for (int n=0; n<100; n++) {
+    if (OP_kernels[n].count>0) {
+      printf(" %6d  %8.4f %8.4f   %s \n",
+	     OP_kernels[n].count,
+             OP_kernels[n].time,
+             OP_kernels[n].transfer/(1024.0f*1024.0f*1024.0f*OP_kernels[n].time),
+             OP_kernels[n].name);
+    }
+  }
+}
+
 
 void op_exit(){
 }
@@ -377,16 +422,16 @@ extern op_plan * plan(char const * name, op_set set, int nargs, op_dat *args, in
 
   if (match) {
     ip--;
-    if (OP_DIAGS > 1) printf(" old execution plan #%d\n",ip);
+    if (OP_diags > 3) printf(" old execution plan #%d\n",ip);
     return &(OP_plans[ip]);
   }
   else {
-    if (OP_DIAGS > 1) printf(" new execution plan #%d\n",ip);
+    if (OP_diags > 1) printf(" new execution plan #%d for kernel %s\n",ip,name);
   }
 
   // consistency checks
 
-  if (OP_DIAGS > 0) {
+  if (OP_diags > 0) {
     for (int m=0; m<nargs; m++) {
       if (idxs[m] == -1) {
         //if (ptrs[m].index != -1) {
@@ -420,13 +465,19 @@ extern op_plan * plan(char const * name, op_set set, int nargs, op_dat *args, in
     }
   }
 
-  // set blocksize and number of blocks
+  // work out worst case shared memory requirement per element
 
-  // int bsize   = 1024;   // blocksize
-  int bsize   = 100;   // blocksize
+  int maxbytes = 0;
+  for (int m=0; m<nargs; m++) {
+    if (inds[m]>=0) maxbytes += args[m].size;
+  }
+
+  // set blocksize and number of blocks;
+  // adaptive size based on 48kB of shared memory
+
+  int bsize   = OP_part_size;   // blocksize
+  if (bsize==0) bsize = (48*1024/(64*maxbytes))*64;
   int nblocks = (set.size-1)/bsize + 1;
-
-  printf(" number of blocks = %d\n",nblocks);
 
   // allocate memory for new execution plan and store input arguments
 
@@ -438,7 +489,7 @@ extern op_plan * plan(char const * name, op_set set, int nargs, op_dat *args, in
   OP_plans[ip].accs      = (op_access *)malloc(nargs*sizeof(op_access));
 
   OP_plans[ip].nthrcol   = (int *)malloc(nblocks*sizeof(int));
-  OP_plans[ip].thrcol    = (int *)calloc(set.size,sizeof(int));
+  OP_plans[ip].thrcol    = (int *)malloc(set.size*sizeof(int));
   OP_plans[ip].offset    = (int *)malloc(nblocks*sizeof(int));
   OP_plans[ip].ind_ptrs  = (int **)malloc(ninds*sizeof(int *));
   OP_plans[ip].ind_offs  = (int **)malloc(ninds*sizeof(int *));
@@ -494,6 +545,8 @@ extern op_plan * plan(char const * name, op_set set, int nargs, op_dat *args, in
   int *nindirect;
   nindirect = (int *)calloc(ninds,sizeof(int));  // total number of indirect elements
 
+  float total_colors = 0;
+
   for (int b=0; b<nblocks; b++) {
     int bs = MIN(bsize, set.size - b*bsize);
 
@@ -528,7 +581,7 @@ extern op_plan * plan(char const * name, op_set set, int nargs, op_dat *args, in
       ne = e;  // number of distinct elements
 
       /*
-      if (OP_DIAGS > 5) {
+      if (OP_diags > 5) {
         printf(" indirection set %d: ",m);
         for (int e=0; e<ne; e++) printf(" %d",work2[e]);
         printf(" \n");
@@ -583,6 +636,8 @@ extern op_plan * plan(char const * name, op_set set, int nargs, op_dat *args, in
 
     // now colour main set elements
 
+    for (int e=b*bsize; e<b*bsize+bs; e++) OP_plans[ip].thrcol[e]=-1;
+
     int repeat  = 1;
     int ncolor  = 0;
     int ncolors = 0;
@@ -597,7 +652,7 @@ extern op_plan * plan(char const * name, op_set set, int nargs, op_dat *args, in
       }
 
       for (int e=b*bsize; e<b*bsize+bs; e++) {
-        if (OP_plans[ip].thrcol[e]==0) {
+        if (OP_plans[ip].thrcol[e] == -1) {
           int mask = 0;
           for (int m=0; m<nargs; m++)
             if (inds[m]>=0 && accs[m]==OP_INC)
@@ -623,6 +678,9 @@ extern op_plan * plan(char const * name, op_set set, int nargs, op_dat *args, in
     }
 
     OP_plans[ip].nthrcol[b] = ncolors;  // number of thread colors in this block
+    total_colors += ncolors;
+
+    // if(ncolors>1) printf(" number of colors in this block = %d \n",ncolors);
 
     // reorder elements by color?
 
@@ -632,7 +690,8 @@ extern op_plan * plan(char const * name, op_set set, int nargs, op_dat *args, in
   // colour the blocks, after initialising colors to 0
 
   int *blk_col;
-  blk_col = (int *)calloc(nblocks,sizeof(int));
+  blk_col = (int *) malloc(nblocks*sizeof(int));
+  for (int b=0; b<nblocks; b++) blk_col[b] = -1;
 
   int repeat  = 1;
   int ncolor  = 0;
@@ -648,12 +707,12 @@ extern op_plan * plan(char const * name, op_set set, int nargs, op_dat *args, in
     }
 
     for (int b=0; b<nblocks; b++) {
-      if (blk_col[b] == 0) {          // color not yet assigned to block
+      if (blk_col[b] == -1) {          // color not yet assigned to block
         int  bs   = MIN(bsize, set.size - b*bsize);
         uint mask = 0;
 
         for (int m=0; m<nargs; m++) {
-          if (inds[m]>=0) 
+          if (inds[m]>=0 && accs[m]==OP_INC) 
             for (int e=b*bsize; e<b*bsize+bs; e++)
               mask |= work[inds[m]][ptrs[m].ptr[idxs[m]+e*ptrs[m].dim]]; // set bits of mask
         }
@@ -668,7 +727,7 @@ extern op_plan * plan(char const * name, op_set set, int nargs, op_dat *args, in
           ncolors = MAX(ncolors, ncolor+color+1);
 
           for (int m=0; m<nargs; m++) {
-            if (inds[m]>=0)
+            if (inds[m]>=0 && accs[m]==OP_INC)
               for (int e=b*bsize; e<b*bsize+bs; e++)
                 work[inds[m]][ptrs[m].ptr[idxs[m]+e*ptrs[m].dim]] |= mask;
           }
@@ -678,7 +737,6 @@ extern op_plan * plan(char const * name, op_set set, int nargs, op_dat *args, in
 
     ncolor += 32;   // increment base level
   }
-
 
   // store block mapping and number of blocks per color
 
@@ -712,6 +770,7 @@ extern op_plan * plan(char const * name, op_set set, int nargs, op_dat *args, in
   // work out shared memory requirements
 
   OP_plans[ip].nshared = 0;
+  float total_shared = 0;
 
   for (int b=0; b<nblocks; b++) {
     int nbytes = 0;
@@ -722,15 +781,52 @@ extern op_plan * plan(char const * name, op_set set, int nargs, op_dat *args, in
       nbytes += ROUND_UP(OP_plans[ip].ind_sizes[m][b]*args[m2].size);
     }
     OP_plans[ip].nshared = MAX(OP_plans[ip].nshared,nbytes);
+    total_shared += nbytes;
   }
 
-  // printf(" shared memory = %d bytes \n",OP_plans[ip].nshared);
+  // work out total bandwidth requirements
 
+  OP_plans[ip].transfer = 0;
+
+  for (int b=0; b<nblocks; b++) {
+    for (int m=0; m<nargs; m++) {
+      if (inds[m]<0) {
+        float fac = 2.0f;
+        if (accs[m]==OP_READ) fac = 1.0f;
+        OP_plans[ip].transfer += fac*OP_plans[ip].nelems[b]*args[m].size;
+      }
+      else {
+        OP_plans[ip].transfer += OP_plans[ip].nelems[b]*sizeof(int);
+      }
+    }
+    for (int m=0; m<ninds; m++) {
+      int m2 = 0;
+      while(inds[m2]!=m) m2++;
+      float fac = 2.0f;
+      if (accs[m2]==OP_READ) fac = 1.0f;
+      OP_plans[ip].transfer += fac*OP_plans[ip].ind_sizes[m][b]*args[m2].size;
+    }
+  }
+
+  // print out useful information
+
+  if (OP_diags>1) {
+    //for (int n=0; n<OP_plans[ip].ncolors; n++)
+    //  printf(" number of blocks of color %d = %d \n",
+    //         n,OP_plans[ip].ncolblk[n]);
+    printf(" number of blocks       = %d \n",nblocks);
+    printf(" number of block colors = %d \n",OP_plans[ip].ncolors);
+    printf(" maximum block size     = %d \n",bsize);
+    printf(" average thread colors  = %.2f \n",total_colors/nblocks);
+    printf(" shared memory required = %.2f KB \n",OP_plans[ip].nshared/1024.0f);
+    printf(" average data reuse     = %.2f \n",maxbytes*(set.size/total_shared));
+    printf(" total data transfer    = %.2f MB \n\n",
+                                       OP_plans[ip].transfer/(1024.0f*1024.0f));
+  }
 
   // validate plan info
 
   OP_plan_check(OP_plans[ip],ninds,inds);
-
 
   // move plan arrays to GPU
 
@@ -784,7 +880,7 @@ void OP_plan_check(op_plan OP_plan, int ninds, int *inds) {
   if (nelem != set.size) {
     printf(" *** OP_plan_check: nelems error \n");
   }
-  else {
+  else if (OP_diags>6) {
     printf(" *** OP_plan_check: nelems   OK \n");
   }
 
@@ -803,7 +899,7 @@ void OP_plan_check(op_plan OP_plan, int ninds, int *inds) {
   if (err != 0) {
     printf(" *** OP_plan_check: offset error \n");
   }
-  else {
+  else if (OP_diags>6) {
     printf(" *** OP_plan_check: offset   OK \n");
   }
 
@@ -823,7 +919,7 @@ void OP_plan_check(op_plan OP_plan, int ninds, int *inds) {
   if (err != 0) {
     printf(" *** OP_plan_check: blkmap error \n");
   }
-  else {
+  else if (OP_diags>6) {
     printf(" *** OP_plan_check: blkmap   OK \n");
   }
 
@@ -845,7 +941,7 @@ void OP_plan_check(op_plan OP_plan, int ninds, int *inds) {
   if (err != 0) {
     printf(" *** OP_plan_check: ind_offs error \n");
   }
-  else {
+  else if (OP_diags>6) {
     printf(" *** OP_plan_check: ind_offs OK \n");
   }
 
@@ -877,7 +973,7 @@ void OP_plan_check(op_plan OP_plan, int ninds, int *inds) {
   if (err != 0) {
     printf(" *** OP_plan_check: ind_ptrs error \n");
   }
-  else {
+  else if (OP_diags>6) {
     printf(" *** OP_plan_check: ind_ptrs OK \n");
   }
 
@@ -908,7 +1004,7 @@ void OP_plan_check(op_plan OP_plan, int ninds, int *inds) {
   if (err != 0) {
     printf(" *** OP_plan_check: ptrs error \n");
   }
-  else {
+  else if (OP_diags>6) {
     printf(" *** OP_plan_check: ptrs     OK \n");
   }
 
