@@ -49,7 +49,7 @@
 
 \title{OPlus2 for many-core platforms}
 \author{Mike~Giles}
-%\date{}
+\date{April 7, 2010\\[0.1in] (updated to rename ``pointers'' as ``mappings'')}
 
 \maketitle
 
@@ -101,7 +101,7 @@ strengths and weaknesses of the existing OPlus library.
 Strengths:
 \begin{itemize}
 \item
-general distributed set/pointer representation has worked well
+general distributed set/mapping representation has worked well
 \item
 single application source code leading to both sequential and 
 parallel executables
@@ -152,9 +152,9 @@ R. Piva, editors. John Wiley and Sons, 1994.
 
 The key assumptions are the same as for OPlus: that the 
 application involves a number of static sets (e.g.~nodes, edges, 
-faces, cells) connected by pointers, and each step in the algorithm 
+faces, cells) connected by mappings, and each step in the algorithm 
 involves an operation applied to all elements of a set (with at
-most one level of pointer indirection to data associated with another
+most one level of mapping indirection to data associated with another
 set) and the result is independent of the order in which the elements 
 are processed (e.g.~Jacobi iteration is allowed but not the standard 
 Gauss-Seidel).
@@ -542,12 +542,6 @@ maximum.  The block may have 400 edges, with maybe 40 per
 colour so we need to use colour-locked increments, with thread 
 synchronisation in between colours.
 
-%There is no re-use of pointers, so no sense in loading pointers 
-%into shared-memory? Except that by doing so we can take the 
-%pointers out of order to minimise the number of colour changes 
-%within a warp.
-
-
 
 \newpage
 
@@ -608,17 +602,17 @@ termination
 My initial idea is that the parallel loop should have the following syntax:
 
 \begin{routine} {op\_par\_loop(kernel, set, label, \\
-\hspace*{1.4in}  arg1, ptr1, index1, type1, dim1, access1, \\
-\hspace*{1.4in}  arg2, ptr2, index2, type2, dim2, access2, \\ 
+\hspace*{1.4in}  arg1, map1, index1, type1, dim1, access1, \\
+\hspace*{1.4in}  arg2, map2, index2, type2, dim2, access2, \\ 
 \hspace*{1.4in}  \ldots,\ \ \ \ldots,\ \ \ \ldots,\ \ \ \ldots,\ \ \ \ldots,\  \ \ \ldots,  \\
-\hspace*{1.4in}  argN, ptrN, indexN, typeN, dimN, accessN)}
+\hspace*{1.4in}  argN, mapN, indexN, typeN, dimN, accessN)}
 {}%{This is a routine returning no value.}
 
 \item[kernel]   name of the kernel function to be applied to each element
 \item[label]    a label string for diagnostic purposes
 \item[set]      set whose elements are to be processed 
 \item[arg1]     first dataset
-\item[ptr1]     pointer from main set to set on which {\bf arg1} is defined
+\item[map1]     pointer from main set to set on which {\bf arg1} is defined
 \item[index1]   index of pointer to access {\bf arg1}
 \item[type1]    type of dataset (e.g. ``float'', ``int'')
 \item[dim11]    dimension of dataset
@@ -653,7 +647,7 @@ will check it is consistent; see discussion in Blog section.
 
 \newpage
 
-There are also routines to declare sets, pointers and datasets:
+There are also routines to declare sets, mappings and datasets:
 
 \begin{routine} {op\_decl\_set(elems, dim, coords, set, label, mapping, maplabel)}
 {}%
@@ -666,13 +660,13 @@ There are also routines to declare sets, pointers and datasets:
 \item[maplabel] a label for the identity mapping
 \end{routine}
 
-\begin{routine} {op\_decl\_ptr(from\_set, to\_set, dim, ptrdata, ptr, label)}
+\begin{routine} {op\_decl\_map(from\_set, to\_set, dim, mapdata, map, label)}
 {}%
 \item[from\_set] set from which it points
 \item[to\_set]   set to which it points
 \item[dim]       number of pointers per element
-\item[ptrdata]   input pointer data
-\item[ptr]       structure containing ptr info (set by routine)
+\item[mapdata]   input pointer data
+\item[map]       structure containing map info (set by routine)
 \item[label]     a label string for diagnostic purposes
 \end{routine}
 
@@ -682,7 +676,7 @@ There are also routines to declare sets, pointers and datasets:
 \item[dim]       amount of data per element
 \item[type]      type of data (e.g. ``float'', ``int'')
 \item[data]      input data array
-\item[ptr]       structure containing data info (set by routine)
+\item[map]       structure containing data info (set by routine)
 \item[label]     a label string for diagnostic purposes
 \end{routine}
 

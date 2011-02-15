@@ -66,12 +66,12 @@ variables or edge weights, which are the arguments to the parallel
 loop functions.
 
 In a particular parallel loop, an ``indirect dataset'' is one which 
-is referenced indirectly using pointers.  Note that more than one 
-argument of the parallel loop can address the same indirect dataset.
-For example, in a typical CFD edge flux calculation, two arguments
-will correspond to the flow variables belonging to the nodes at either
-end of the edge, and another two arguments will correspond to the
-flux residuals at either end.
+is referenced indirectly using a mapping from another set.  Note that 
+more than one argument of the parallel loop can address the same 
+indirect dataset.  For example, in a typical CFD edge flux calculation, 
+two arguments will correspond to the flow variables belonging to the 
+nodes at either end of the edge, and another two arguments will 
+correspond to the flux residuals at either end.
 
 The pre-processor {\tt \bf op2.m} identifies for each parallel loop
 the number of arguments {\tt nargs}, the number of indirect datasets
@@ -96,7 +96,7 @@ within the limited amount of shared memory available to each SM
 each of the execution units in their GPUs).  The idea is that the
 indirect datasets are held within the shared memory to maximize data 
 reuse and avoid global memory traffic.  However this requires 
-renumbering of the pointers used to reference these datasets.
+renumbering of the mappings used to reference these datasets.
 
 %\newpage
 
@@ -114,24 +114,24 @@ use a large work array to invert the mapping, to give the mapping
 from global indices to local indices (note: this is obviously only
 needed for the global indices occurring within that block)
 \item
-create a new copy of the pointer table which uses the new local 
+create a new copy of the mapping table which uses the new local 
 indices
 \end{itemize}
 
 Note that each indirect dataset ends up with its own duplicate 
-pointer table.  In some cases, the indirect datasets had the same
-original pointer tables; for example, in the CFD edge flux loop 
+mapping table.  In some cases, the indirect datasets had the same
+original mapping tables; for example, in the CFD edge flux loop 
 described before the flow variables and flux residuals were 
-referenced using the same edge-node pointers.  In this case,
+referenced using the same edge-node mappings.  In this case,
 we are currently wasting both memory and memory bandwidth by 
-duplicating the renumbered pointer tables.  This should be 
+duplicating the renumbered mapping tables.  This should be 
 eliminated in the future, by identifying such duplication, 
 de-allocating the duplicates, and changing the pointer to the 
 duplicate table to point to the primary table.
 
-Note also that for multi-dimensional pointers one has to use the
-appropriate pointer index as specified in the inputs, and the 
-re-numbered pointers which are stored are for that index alone.
+Note also that for multi-dimensional mappings one has to use the
+appropriate mapping index as specified in the inputs, and the 
+re-numbered mappings which are stored are for that index alone.
 
 \newpage
 
@@ -298,18 +298,18 @@ an array with the number of thread colors for each block
 an array with the thread color for each element of the primary set
 \item {\tt offset${}^*$}:
 an array with the primary set offset for the beginning of each block
-\item {\tt ind\_ptrs${}^*$}:
+\item {\tt ind\_maps${}^*$}:
 a 2D array, the outer index over the indirect datasets, and the inner one giving the 
 local $\rightarrow$ global renumbering for the elements of the indirect set
 \item {\tt ind\_offs${}^*$}:
 a 2D array, the outer index over the indirect datasets, and the inner one giving the 
-starting offset into {\tt ind\_ptrs} for each block
+starting offset into {\tt ind\_maps} for each block
 \item {\tt ind\_sizes${}^*$}:
 a 2D array, the outer index over the indirect datasets, and the inner one giving the
 number of indirect elements for each block
-\item {\tt ptrs${}^*$}:
+\item {\tt maps${}^*$}:
 a 2D array, the outer index over the datasets, and the inner one giving the indirect 
-pointers to local indices in shared memory
+mappings to local indices in shared memory
 \item {\tt nelems${}^*$}:
 an array with number of primary set elements in each block
 \item {\tt ncolors}:
@@ -344,9 +344,9 @@ In this section I describe the code transformation performed by
 As explained in Section 1.1, the pre-processor finds each 
 {\tt op\_par\_loop} call 
 and parses the arguments to identify the number of indirect 
-datasets which are used, and to define the {\tt inds[]} mapping from 
-the arguments to the indirect datasets.  It also identifies how
-each of the arguments is being used (or ``accessed'').
+datasets which are used, and to define the {\tt inds[]} mapping 
+from the arguments to the indirect datasets.  It also identifies 
+how each of the arguments is being used (or ``accessed'').
 
 If there are no indirect datasets the stub and kernel functions
 which are generated are fairly simple.  The descriptions in the next 
@@ -398,10 +398,6 @@ be held in registers (or in L1 cache on Fermi)
 get block ID using {\tt blkmap} mapping discussed in Section 1.4
 
 \item
-shift the pointers for the direct datasets to the correct starting 
-point for this block
-
-\item
 set the dynamic shared memory pointers for indirect datasets; see 
 the CUDA Programmer's Guide for more info on this
 
@@ -448,14 +444,13 @@ command {\tt \_\_syncthreads();} must be called by all threads.
 The {\tt if} test within the loop prevents execution for elements
 beyond the end of the block, and the default color is set to ensure
 no participation in the colored increment.
-If we switch to atomic updates, the thread synchronization will
-no longer be needed, and so the main loop can simply go up to
-{\tt nelems}.
+%If we switch to atomic updates, the thread synchronization will
+%no longer be needed, and so the main loop can simply go up to
+%{\tt nelems}.
 
-(Note: the generated code includes a number of pointers 
-which are probably held in registers, even though they have the 
-same value for all threads.  It might be better to explicitly put 
-them into shared memory, using thread 0 to set their value.)
+The generated code includes a number of pointers which are computed 
+by thread 0 and held in shared memory.  This is because the same values 
+are needed for all threads, and this minimises register usage.
 
 
 \subsection{the new source file}
@@ -486,45 +481,32 @@ constants to have global scope over all kernel files.
 
 \subsection{Summation}
 
-The global value on the GPU is initialised by transfer from the CPU. 
+Each thread block has a separate entry in a device GPU array which is 
+initialised to zero.
 
 Each thread sums its contributions, with the sum being initialised to zero.
 The combined contributions from a single thread block are then combined 
 in a binary tree reduction process modelled on that the SDK ``reduction'' 
 example, using shared memory.  
 
-The thread block sum is added to the global value by using an atomic lock 
-to ensure that only one block at a time adds its contribution, and then once 
-the CUDA kernel call is complete the final value is transferred back to the CPU 
+The thread block sum is then added to the appropriate global entry for that 
+block.  Once the CUDA kernel call is complete the final block values are 
+transferred back to the CPU and added to the original starting value.
 
 \subsection{Min/max reductions}
 
-The treatment of min/max reductions is very similar. At the thread 
-level the minimum/maximum is initialised using the current global value
-and then updated using the thread's subsequent contributions.  A binary tree
-approach combines these to form a thread block minimum/maximum,
-and then this is combined with the global minimum/maximum using
-the atomic lock.
+The treatment of min/max reductions is very similar. Each thread block 
+again has a separate entry in a device GPU array, but in this case 
+it is initialised to the initial CPU input value.
 
-%Surprisingly, I think this is perhaps the optimal implementation.
-%If the values being reduced are random variables, the probability that the
-%$n^{th}$ thread needs to update the global minimum (or maximum) is $1/n$.
-%Hence, if there are $N$ threads in total the average number of global updates 
-%would be
-%\[
-%\sum_{n=1}^N 1/n\ \approx\ \log n.
-%\]
-%Doing a local reduction within each thread block would add an $O(N)$ 
-%cost which would be larger in most cases than the $O(\log N)$ cost
-%of the atomic updates.
-%
-%\subsection{Alternative implementation}
-%
-%Instead of using atomic operations an alternative would be for each 
-%thread block to compute its sum/min/max and put it into a global array
-%for the CPU to transfer back and complete the reduction. I should probably 
-%investigate this approach sometime.  One advantage of this is that it 
-%would be much simpler for the user-defined datatypes discussed in the next section.
+At the thread level the minimum/maximum is initialised using the current 
+global value for that block, and then updated using the thread's subsequent 
+contributions.  A binary tree approach combines these to form a thread 
+block minimum/maximum.
+
+The thread block minimum/maximum values are used to update the global value.
+Once the CUDA kernel call is complete the final block values are transferred 
+back to the CPU and combined to give the overall minimum/maximum.
 
 %\newpage
 
@@ -575,21 +557,6 @@ so that for all $a, b, c$,
 \item\vspace*{-0.1in}  either $a\!<\!b$, or $a\!>\!b$, or $a\!=\!b$
 \end{itemize}
 
-% provided the user provides an 
-%appropriate version of {\tt atomicAdd} for the user-defined datatype.
-%For datatypes which are longer than 8 bytes, I think this will require
-%the use of some kind of mutex lock.  
-%
-%One possibility is to add a boolean lock as an extra component within 
-%the datatype. The lock can be set by a busy-wait loop using {\tt atomicCAS}.
-%The rest of the datatype can then be updated safely before releasing 
-%the lock.  I think {\tt \_\_threadfence()} may be needed before the lock 
-%release to ensure the previous write operations have completed; see 
-%section B.5 in the CUDA Programming Guide version 3.0.
-%
-%A slight alternative is to use an existing element of the datatype as 
-%a lock.  For example, a NaN value for a floating point element could 
-%be used to indicate a lock.
 
 \subsection{Alignment padding}
 
@@ -618,7 +585,7 @@ implementing an all-to-all data exchange followed by local reduction,
 with an option for MPI reductions being used for standard datatypes.
 
 
-\newpage
+%\newpage
 
 \section{CUDA 3.0 notes: 20/02/10}
 
@@ -653,11 +620,6 @@ maybe it's not worth worrying about?
 \item
 no point in using texture mapping?
 
-\item
-consider the compiler options 
-{\tt -ftz=true -prec-div=false -prec-sqrt=false} 
-for improved performance
-
 \end{itemize}
 
 \newpage
@@ -666,33 +628,17 @@ for improved performance
 
 \begin{itemize}
 \item
-Add capability to handle dataset (and local and global constant) dimensions 
-which are not known until run-time.
-
-\item
-Set block sizes to maximum which will fit in in worst case
-(and write up why I think it's a good default choice)
-
-\item
-Renumber sets and pointers to improve data reuse.
-
-\item
 Modify {\bf op2.m} to cope with more than one parallel loop using 
 the same user kernel function, and more than one call to set the 
 value of the same global constant.
 
 \item
-For indirect datasets, maybe use only first warp for read/write to 
-improve caching?  Or change the implementation so that each element 
-of an dataset for a particular set element is loaded by a different 
-thread in the warp (instead of the same thread as at present)?
+Add capability to handle dataset (and local and global constant) dimensions 
+which are not known until run-time.
 
-%\item
-%Try storing thread-invariant data (such as array pointers)
-%in shared memory, to avoid using precious registers.
-%
-%\item
-%Investigate the use of atomic increments instead of thread coloring.
+\item
+Add recursive geometric partitioning for local renumbering of sets and 
+mappings to improve data reuse.
 
 \item
 For some parallel loops (like the gradient calculation in HYDRA)
@@ -700,6 +646,11 @@ which are data-intensive and not compute-intensive, it might be better
 for the thread coloring to also control the user kernel execution, so 
 that the indirect arrays held in shared memory can be directly incremented 
 rather than using local variables to hold the temporary increments.
+
+\item
+Within a thread block, could reorder elements to reduce the number of 
+different colors within each warp.  This would require the storage and 
+fetching of the permuted identity mapping 
 
 \end{itemize}
 

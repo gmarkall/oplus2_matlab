@@ -43,13 +43,13 @@
 //
 
 int OP_set_index=0,
-    OP_ptr_index=0,
+    OP_map_index=0,
     OP_dat_index=0,
     OP_nplans   =0,
     OP_diags    =0;
 
 op_set  * OP_set_list[10];
-op_ptr  * OP_ptr_list[10];
+op_map  * OP_map_list[10];
 op_dat  * OP_dat_list[10];
 op_plan   OP_plans[100];
 op_kernel OP_kernels[100];
@@ -70,15 +70,15 @@ void op_decl_set(int size, op_set &set, char const *name){
   OP_set_list[OP_set_index++] = &set;
 }
 
-void op_decl_ptr(op_set from, op_set to, int dim, int *ptr, op_ptr &pointer, char const *name){
-  pointer.from = from;
-  pointer.to   = to;
-  pointer.dim  = dim;
-  pointer.ptr  = ptr;
-  pointer.name = name;
+void op_decl_map(op_set from, op_set to, int dim, int *map, op_map &mapping, char const *name){
+  mapping.from = from;
+  mapping.to   = to;
+  mapping.dim  = dim;
+  mapping.map  = map;
+  mapping.name = name;
 
-  pointer.index = OP_ptr_index;
-  OP_ptr_list[OP_ptr_index++] = &pointer;
+  mapping.index = OP_map_index;
+  OP_map_list[OP_map_index++] = &mapping;
 }
 
 void op_decl_dat_char(op_set set, int dim, char const *type, int size, char *dat, op_dat &data, char const *name){
@@ -110,11 +110,11 @@ void op_diagnostic_output(){
       printf("%10s %10d\n",set.name,set.size);
     }
 
-    printf("\n       ptr        dim       from         to\n");
+    printf("\n       map        dim       from         to\n");
     printf(  "  -----------------------------------------\n");
-    for(int n=0; n<OP_ptr_index; n++) {
-      op_ptr ptr=*OP_ptr_list[n];
-      printf("%10s %10d %10s %10s\n",ptr.name,ptr.dim,ptr.from.name,ptr.to.name);
+    for(int n=0; n<OP_map_index; n++) {
+      op_map map=*OP_map_list[n];
+      printf("%10s %10d %10s %10s\n",map.name,map.dim,map.from.name,map.to.name);
     }
 
     printf("\n       dat        dim        set\n");

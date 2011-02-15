@@ -48,16 +48,19 @@
 // global variables
 //
 
+#define OP_WARPSIZE 32
+
 int OP_set_index =0,
-    OP_ptr_index =0,
+    OP_map_index =0,
     OP_dat_index =0,
     OP_nplans    =0,
     OP_diags     =0,
     OP_part_size =0,
-    OP_block_size=512;
+    OP_block_size=512,
+    OP_cache_line_size=128;
 
 op_set  * OP_set_list[10];
-op_ptr  * OP_ptr_list[10];
+op_map  * OP_map_list[10];
 op_dat  * OP_dat_list[10];
 op_plan   OP_plans[100];
 op_kernel OP_kernels[100];
@@ -92,11 +95,21 @@ void op_init(int argc, char **argv, int diags){
       OP_part_size = atoi(argv[n]+13);
       printf("\n OP_part_size  = %d \n", OP_part_size);
     }
+    if (strncmp(argv[n],"OP_CACHE_LINE_SIZE=",19)==0) {
+      OP_cache_line_size = atoi(argv[n]+19);
+      printf("\n OP_cache_line_size  = %d \n", OP_cache_line_size);
+    }
   }
 
+#ifndef OP_x86
+  cutilSafeCall(cudaThreadSetCacheConfig(cudaFuncCachePreferShared));
+  printf("\n 16/48 L1/shared \n");
+#endif
+
   for (int n=0; n<100; n++) {
-    OP_kernels[n].count    = 0;
-    OP_kernels[n].transfer = 0.0f;
+    OP_kernels[n].count     = 0;
+    OP_kernels[n].transfer  = 0.0f;
+    OP_kernels[n].transfer2 = 0.0f;
   }
 }
 
@@ -108,15 +121,15 @@ void op_decl_set(int size, op_set &set, char const *name){
   OP_set_list[OP_set_index++] = &set;
 }
 
-void op_decl_ptr(op_set from, op_set to, int dim, int *ptr, op_ptr &pointer, char const *name){
-  pointer.from = from;
-  pointer.to   = to;
-  pointer.dim  = dim;
-  pointer.ptr  = ptr;
-  pointer.name = name;
+void op_decl_map(op_set from, op_set to, int dim, int *map, op_map &mapping, char const *name){
+  mapping.from = from;
+  mapping.to   = to;
+  mapping.dim  = dim;
+  mapping.map  = map;
+  mapping.name = name;
 
-  pointer.index = OP_ptr_index;
-  OP_ptr_list[OP_ptr_index++] = &pointer;
+  mapping.index = OP_map_index;
+  OP_map_list[OP_map_index++] = &mapping;
 }
 
 void op_decl_dat_char(op_set set, int dim, char const *type, int size, char *dat, op_dat &data, char const *name){
@@ -152,11 +165,11 @@ void op_diagnostic_output(){
       printf("%10s %10d\n",set.name,set.size);
     }
 
-    printf("\n       ptr        dim       from         to\n");
+    printf("\n       map        dim       from         to\n");
     printf(  "  -----------------------------------------\n");
-    for(int n=0; n<OP_ptr_index; n++) {
-      op_ptr ptr=*OP_ptr_list[n];
-      printf("%10s %10d %10s %10s\n",ptr.name,ptr.dim,ptr.from.name,ptr.to.name);
+    for(int n=0; n<OP_map_index; n++) {
+      op_map map=*OP_map_list[n];
+      printf("%10s %10d %10s %10s\n",map.name,map.dim,map.from.name,map.to.name);
     }
 
     printf("\n       dat        dim        set\n");
@@ -170,14 +183,22 @@ void op_diagnostic_output(){
 }
 
 void op_timing_output() {
-  printf("\n  count     time     GB/s   kernel name ");
-  printf("\n --------------------------------------- \n");
+  printf("\n  count     time     GB/s     GB/s   kernel name ");
+  printf("\n ----------------------------------------------- \n");
   for (int n=0; n<100; n++) {
     if (OP_kernels[n].count>0) {
-      printf(" %6d  %8.4f %8.4f   %s \n",
+      if (OP_kernels[n].transfer2==0.0f)
+        printf(" %6d  %8.4f %8.4f            %s \n",
 	     OP_kernels[n].count,
              OP_kernels[n].time,
-             OP_kernels[n].transfer/(1024.0f*1024.0f*1024.0f*OP_kernels[n].time),
+             OP_kernels[n].transfer/(1e9f*OP_kernels[n].time),
+             OP_kernels[n].name);
+      else
+        printf(" %6d  %8.4f %8.4f %8.4f   %s \n",
+	     OP_kernels[n].count,
+             OP_kernels[n].time,
+             OP_kernels[n].transfer/(1e9f*OP_kernels[n].time),
+             OP_kernels[n].transfer2/(1e9f*OP_kernels[n].time),
              OP_kernels[n].name);
     }
   }
@@ -217,12 +238,12 @@ int comp(const void *a2, const void *b2) {
 //
 
 template <class T>
-void mvHostToDevice(T **ptr, int size) {
+void mvHostToDevice(T **map, int size) {
   T *tmp;
   cutilSafeCall(cudaMalloc((void **)&tmp, size));
-  cutilSafeCall(cudaMemcpy(tmp, *ptr, size, cudaMemcpyHostToDevice));
-  free(*ptr);
-  *ptr = tmp;
+  cutilSafeCall(cudaMemcpy(tmp, *map, size, cudaMemcpyHostToDevice));
+  free(*map);
+  *map = tmp;
 }
 
 
@@ -242,23 +263,28 @@ extern void op_fetch_data(op_dat data) {
 //
 
 void reallocConstArrays(int consts_bytes) {
-  if (OP_consts_bytes>0) {
-    free(OP_consts_h);
-    cutilSafeCall(cudaFree(OP_consts_d));
+  if (consts_bytes>OP_consts_bytes) {
+    if (OP_consts_bytes>0) {
+      free(OP_consts_h);
+      cutilSafeCall(cudaFree(OP_consts_d));
+    }
+    OP_consts_bytes = 4*consts_bytes;
+    OP_consts_h = (char *) malloc(OP_consts_bytes);
+    cutilSafeCall(cudaMalloc((void **)&OP_consts_d, OP_consts_bytes));
   }
-  OP_consts_bytes = 4*consts_bytes;
-  OP_consts_h = (char *) malloc(OP_consts_bytes);
-  cutilSafeCall(cudaMalloc((void **)&OP_consts_d, OP_consts_bytes));
 }
 
 void reallocReductArrays(int reduct_bytes) {
-  if (OP_reduct_bytes>0) {
-    free(OP_reduct_h);
-    cutilSafeCall(cudaFree(OP_reduct_d));
+  if (reduct_bytes>OP_reduct_bytes) {
+    if (OP_reduct_bytes>0) {
+      free(OP_reduct_h);
+      cutilSafeCall(cudaFree(OP_reduct_d));
+    }
+    OP_reduct_bytes = 4*reduct_bytes;
+    OP_reduct_h = (char *) malloc(OP_reduct_bytes);
+    cutilSafeCall(cudaMalloc((void **)&OP_reduct_d, OP_reduct_bytes));
+    // printf("\n allocated %d bytes for reduction arrays \n",OP_reduct_bytes);
   }
-  OP_reduct_bytes = 4*reduct_bytes;
-  OP_reduct_h = (char *) malloc(OP_reduct_bytes);
-  cutilSafeCall(cudaMalloc((void **)&OP_reduct_d, OP_reduct_bytes));
 }
 
 //
@@ -295,24 +321,11 @@ __inline__ __device__ void op_reduction(volatile T *dat_g, T dat_l)
   int d   = blockDim.x>>1; 
   extern __shared__ T temp[];
 
-  if (tid>=d) temp[tid-d] = dat_l;
-  __syncthreads();
+  __syncthreads();  // important to finish all previous activity
 
-  if (tid<d) {
-    switch (reduction) {
-    case OP_INC:
-      temp[tid] = temp[tid] + dat_l;
-      break;
-    case OP_MIN:
-      if(dat_l<temp[tid]) temp[tid] = dat_l;
-      break;
-    case OP_MAX:
-      if(dat_l>temp[tid]) temp[tid] = dat_l;
-      break;
-    }
-  }
+  temp[tid] = dat_l;
 
-  for (d>>=1; d>warpSize; d>>=1) {
+  for (; d>warpSize; d>>=1) {
     __syncthreads();
     if (tid<d) {
       switch (reduction) {
@@ -352,25 +365,24 @@ __inline__ __device__ void op_reduction(volatile T *dat_g, T dat_l)
   }
 
   if (tid==0) {
-    do {} while(atomicCAS(&OP_reduct_lock,0,1));  // set lock
+    // do {} while(atomicCAS(&OP_reduct_lock,0,1));  // set lock
 
     switch (reduction) {
     case OP_INC:
-      *dat_g = *dat_g + temp[0];
+      *dat_g = *dat_g + vtemp[0];
       break;
     case OP_MIN:
-      if(temp[0]<*dat_g) *dat_g = temp[0];
+      if(temp[0]<*dat_g) *dat_g = vtemp[0];
       break;
     case OP_MAX:
-      if(temp[0]>*dat_g) *dat_g = temp[0];
+      if(temp[0]>*dat_g) *dat_g = vtemp[0];
       break;
     }
 
-    __threadfence();                // ensure *dat_g update complete
-    OP_reduct_lock = 0;             // free lock
+    // __threadfence();                // ensure *dat_g update complete
+    // OP_reduct_lock = 0;             // free lock
   }
 
-  __syncthreads();  // important to finish one reduction before the next
 }
 
 
@@ -397,7 +409,7 @@ void OP_plan_check(op_plan, int, int *);
 //
 
 extern op_plan * plan(char const * name, op_set set, int nargs, op_dat *args, int *idxs,
-      op_ptr *ptrs, int *dims, char const **typs, op_access *accs, int ninds, int *inds){
+      op_map *maps, int *dims, char const **typs, op_access *accs, int ninds, int *inds){
 
   // first look for an existing execution plan
 
@@ -411,7 +423,7 @@ extern op_plan * plan(char const * name, op_set set, int nargs, op_dat *args, in
       for (int m=0; m<nargs; m++) {
         match = match && (args[m].index == OP_plans[ip].arg_idxs[m])
                       && (idxs[m]       == OP_plans[ip].idxs[m])
-                      && (ptrs[m].index == OP_plans[ip].ptr_idxs[m])
+                      && (maps[m].index == OP_plans[ip].map_idxs[m])
                       && (dims[m]       == OP_plans[ip].dims[m])
             && type_match(typs[m],         OP_plans[ip].typs[m])
                       && (accs[m]       == OP_plans[ip].accs[m]);
@@ -434,23 +446,23 @@ extern op_plan * plan(char const * name, op_set set, int nargs, op_dat *args, in
   if (OP_diags > 0) {
     for (int m=0; m<nargs; m++) {
       if (idxs[m] == -1) {
-        //if (ptrs[m].index != -1) {
-        if (ptrs[m].ptr != NULL) {
-          printf("error2: wrong pointer for arg %d in kernel \"%s\"\n",m,name);
-          printf("ptrs[m].index = %d\n",ptrs[m].index);
-          printf("ptrs[m].name  = %s\n",ptrs[m].name);
+        //if (maps[m].index != -1) {
+        if (maps[m].map != NULL) {
+          printf("error2: wrong mapping for arg %d in kernel \"%s\"\n",m,name);
+          printf("maps[m].index = %d\n",maps[m].index);
+          printf("maps[m].name  = %s\n",maps[m].name);
           exit(1);
         }
       }
       else {
-        if (set.index         != ptrs[m].from.index ||
-            args[m].set.index != ptrs[m].to.index) {
-          printf("error: wrong pointer for arg %d in kernel \"%s\"\n",m,name);
+        if (set.index         != maps[m].from.index ||
+            args[m].set.index != maps[m].to.index) {
+          printf("error: wrong mapping for arg %d in kernel \"%s\"\n",m,name);
           exit(1);
         }
-        if (ptrs[m].dim <= idxs[m]) {
-          printf(" %d %d",ptrs[m].dim,idxs[m]);
-          printf("error: invalid pointer index for arg %d in kernel \"%s\"\n",m,name);
+        if (maps[m].dim <= idxs[m]) {
+          printf(" %d %d",maps[m].dim,idxs[m]);
+          printf("error: invalid mapping index for arg %d in kernel \"%s\"\n",m,name);
           exit(1);
         }
       }
@@ -483,7 +495,7 @@ extern op_plan * plan(char const * name, op_set set, int nargs, op_dat *args, in
 
   OP_plans[ip].arg_idxs  = (int *)malloc(nargs*sizeof(int));
   OP_plans[ip].idxs      = (int *)malloc(nargs*sizeof(int));
-  OP_plans[ip].ptr_idxs  = (int *)malloc(nargs*sizeof(int));
+  OP_plans[ip].map_idxs  = (int *)malloc(nargs*sizeof(int));
   OP_plans[ip].dims      = (int *)malloc(nargs*sizeof(int));
   OP_plans[ip].typs      = (char const **)malloc(nargs*sizeof(char *));
   OP_plans[ip].accs      = (op_access *)malloc(nargs*sizeof(op_access));
@@ -491,10 +503,10 @@ extern op_plan * plan(char const * name, op_set set, int nargs, op_dat *args, in
   OP_plans[ip].nthrcol   = (int *)malloc(nblocks*sizeof(int));
   OP_plans[ip].thrcol    = (int *)malloc(set.size*sizeof(int));
   OP_plans[ip].offset    = (int *)malloc(nblocks*sizeof(int));
-  OP_plans[ip].ind_ptrs  = (int **)malloc(ninds*sizeof(int *));
-  OP_plans[ip].ind_offs  = (int **)malloc(ninds*sizeof(int *));
-  OP_plans[ip].ind_sizes = (int **)malloc(ninds*sizeof(int *));
-  OP_plans[ip].ptrs      = (int **)malloc(nargs*sizeof(int *));
+  OP_plans[ip].ind_maps  = (int **)malloc(ninds*sizeof(int *));
+  OP_plans[ip].ind_offs  = (int *)malloc(nblocks*ninds*sizeof(int));
+  OP_plans[ip].ind_sizes = (int *)malloc(nblocks*ninds*sizeof(int));
+  OP_plans[ip].maps      = (short **)malloc(nargs*sizeof(short *));
   OP_plans[ip].nelems    = (int *)malloc(nblocks*sizeof(int));
   OP_plans[ip].ncolblk   = (int *)calloc(set.size,sizeof(int)); // max possibly needed
   OP_plans[ip].blkmap    = (int *)calloc(nblocks,sizeof(int));
@@ -503,17 +515,15 @@ extern op_plan * plan(char const * name, op_set set, int nargs, op_dat *args, in
     int count = 0;
     for (int m2=0; m2<nargs; m2++)
       if (inds[m2]==m) count++;
-    OP_plans[ip].ind_ptrs[m]  = (int *)malloc(count*set.size*sizeof(int));
-    OP_plans[ip].ind_offs[m]  = (int *)malloc(nblocks*sizeof(int));
-    OP_plans[ip].ind_sizes[m] = (int *)malloc(nblocks*sizeof(int));
+    OP_plans[ip].ind_maps[m]  = (int *)malloc(count*set.size*sizeof(int));
   }
 
   for (int m=0; m<nargs; m++) {
-    OP_plans[ip].ptrs[m]     = (int *)malloc(set.size*sizeof(int));
+    OP_plans[ip].maps[m]     = (short *)malloc(set.size*sizeof(short));
 
     OP_plans[ip].arg_idxs[m] = args[m].index;
     OP_plans[ip].idxs[m]     = idxs[m];
-    OP_plans[ip].ptr_idxs[m] = ptrs[m].index;
+    OP_plans[ip].map_idxs[m] = maps[m].index;
     OP_plans[ip].dims[m]     = dims[m];
     OP_plans[ip].typs[m]     = typs[m];
     OP_plans[ip].accs[m]     = accs[m];
@@ -534,7 +544,7 @@ extern op_plan * plan(char const * name, op_set set, int nargs, op_dat *args, in
     int m2 = 0;
     while(inds[m2]!=m) m2++;
 
-    work[m] = (uint *)malloc(ptrs[m2].to.size*sizeof(uint));
+    work[m] = (uint *)malloc(maps[m2].to.size*sizeof(uint));
   }
 
   int *work2;
@@ -563,7 +573,7 @@ extern op_plan * plan(char const * name, op_set set, int nargs, op_dat *args, in
       for (int m2=0; m2<nargs; m2++) {
         if (inds[m2]==m) {
           for (int e=b*bsize; e<b*bsize+bs; e++)
-            work2[ne++] = ptrs[m2].ptr[idxs[m2]+e*ptrs[m2].dim];
+            work2[ne++] = maps[m2].map[idxs[m2]+e*maps[m2].dim];
 	}
       }
 
@@ -588,48 +598,52 @@ extern op_plan * plan(char const * name, op_set set, int nargs, op_dat *args, in
       }
       */
 
-      // store mapping and renumbered pointers in execution plan
+
+      // store mapping and renumbered mappings in execution plan
 
       for (int e=0; e<ne; e++) {
-        OP_plans[ip].ind_ptrs[m][nindirect[m]++] = work2[e];
+        OP_plans[ip].ind_maps[m][nindirect[m]++] = work2[e];
         work[m][work2[e]] = e;   // inverse mapping
       }
 
       for (int m2=0; m2<nargs; m2++) {
         if (inds[m2]==m) {
           for (int e=b*bsize; e<b*bsize+bs; e++)
-            OP_plans[ip].ptrs[m2][e] = work[m][ptrs[m2].ptr[idxs[m2]+e*ptrs[m2].dim]];
+            OP_plans[ip].maps[m2][e] = work[m][maps[m2].map[idxs[m2]+e*maps[m2].dim]];
 	}
       }
 
       if (b==0) {
-        OP_plans[ip].ind_offs[m][b]  = 0;
-        OP_plans[ip].ind_sizes[m][b] = nindirect[m];
+        OP_plans[ip].ind_offs[m+b*ninds]  = 0;
+        OP_plans[ip].ind_sizes[m+b*ninds] = nindirect[m];
       }
       else {
-        OP_plans[ip].ind_offs[m][b]  = OP_plans[ip].ind_offs[m][b-1]
-                                     + OP_plans[ip].ind_sizes[m][b-1];
-        OP_plans[ip].ind_sizes[m][b] = nindirect[m] - OP_plans[ip].ind_offs[m][b];
+        OP_plans[ip].ind_offs[m+b*ninds]  = OP_plans[ip].ind_offs[m+(b-1)*ninds]
+                                          + OP_plans[ip].ind_sizes[m+(b-1)*ninds];
+        OP_plans[ip].ind_sizes[m+b*ninds] = nindirect[m]
+                                          - OP_plans[ip].ind_offs[m+b*ninds];
       }
     }
 
 
-    // print out re-numbered pointers
+    // print out re-numbered mappings
 
     /*
     for (int m=0; m<nargs; m++) {
       if (inds[m]>=0) {
-        printf(" pointer table %d\n",m);
+        printf(" mapping table %d\n",m);
         for (int e=0; e<set.size; e++)
-          printf(" ptr = %d\n",OP_plans[ip].ptrs[m][e]);
+          printf(" map = %d\n",OP_plans[ip].maps[m][e]);
       }
     }
 
     for (int m=0; m<ninds; m++) {
       printf(" indirect set %d\n",m);
       for (int b=0; b<nblocks; b++) {
-        printf("OP_plans[ip].ind_sizes[m][b] = %d\n", OP_plans[ip].ind_sizes[m][b]);
-        printf("OP_plans[ip].ind_offs[m][b] = %d\n", OP_plans[ip].ind_offs[m][b]);
+        printf("OP_plans[ip].ind_sizes[m+b*ninds] = %d\n",
+                OP_plans[ip].ind_sizes[m+b*ninds]);
+        printf("OP_plans[ip].ind_offs[m+b*ninds] = %d\n",
+                OP_plans[ip].ind_offs[m+b*ninds]);
       }
     }
     */
@@ -648,7 +662,7 @@ extern op_plan * plan(char const * name, op_set set, int nargs, op_dat *args, in
       for (int m=0; m<nargs; m++) {
         if (inds[m]>=0)
           for (int e=b*bsize; e<b*bsize+bs; e++)
-            work[inds[m]][ptrs[m].ptr[idxs[m]+e*ptrs[m].dim]] = 0;  // zero out color array
+            work[inds[m]][maps[m].map[idxs[m]+e*maps[m].dim]] = 0;  // zero out color array
       }
 
       for (int e=b*bsize; e<b*bsize+bs; e++) {
@@ -656,7 +670,7 @@ extern op_plan * plan(char const * name, op_set set, int nargs, op_dat *args, in
           int mask = 0;
           for (int m=0; m<nargs; m++)
             if (inds[m]>=0 && accs[m]==OP_INC)
-              mask |= work[inds[m]][ptrs[m].ptr[idxs[m]+e*ptrs[m].dim]]; // set bits of mask
+              mask |= work[inds[m]][maps[m].map[idxs[m]+e*maps[m].dim]]; // set bits of mask
 
           int color = ffs(~mask) - 1;   // find first bit not set
           if (color==-1) {              // run out of colors on this pass
@@ -669,7 +683,7 @@ extern op_plan * plan(char const * name, op_set set, int nargs, op_dat *args, in
 
             for (int m=0; m<nargs; m++)
               if (inds[m]>=0 && accs[m]==OP_INC)
-                work[inds[m]][ptrs[m].ptr[idxs[m]+e*ptrs[m].dim]] |= mask; // set color bit
+                work[inds[m]][maps[m].map[idxs[m]+e*maps[m].dim]] |= mask; // set color bit
           }
         }
       }
@@ -702,7 +716,7 @@ extern op_plan * plan(char const * name, op_set set, int nargs, op_dat *args, in
 
     for (int m=0; m<nargs; m++) {
       if (inds[m]>=0) 
-        for (int e=0; e<ptrs[m].to.size; e++)
+        for (int e=0; e<maps[m].to.size; e++)
           work[inds[m]][e] = 0;               // zero out color arrays
     }
 
@@ -714,7 +728,7 @@ extern op_plan * plan(char const * name, op_set set, int nargs, op_dat *args, in
         for (int m=0; m<nargs; m++) {
           if (inds[m]>=0 && accs[m]==OP_INC) 
             for (int e=b*bsize; e<b*bsize+bs; e++)
-              mask |= work[inds[m]][ptrs[m].ptr[idxs[m]+e*ptrs[m].dim]]; // set bits of mask
+              mask |= work[inds[m]][maps[m].map[idxs[m]+e*maps[m].dim]]; // set bits of mask
         }
 
         int color = ffs(~mask) - 1;   // find first bit not set
@@ -729,7 +743,7 @@ extern op_plan * plan(char const * name, op_set set, int nargs, op_dat *args, in
           for (int m=0; m<nargs; m++) {
             if (inds[m]>=0 && accs[m]==OP_INC)
               for (int e=b*bsize; e<b*bsize+bs; e++)
-                work[inds[m]][ptrs[m].ptr[idxs[m]+e*ptrs[m].dim]] |= mask;
+                work[inds[m]][maps[m].map[idxs[m]+e*maps[m].dim]] |= mask;
           }
         }
       }
@@ -778,7 +792,7 @@ extern op_plan * plan(char const * name, op_set set, int nargs, op_dat *args, in
       int m2 = 0;
       while(inds[m2]!=m) m2++;
 
-      nbytes += ROUND_UP(OP_plans[ip].ind_sizes[m][b]*args[m2].size);
+      nbytes += ROUND_UP(OP_plans[ip].ind_sizes[m+b*ninds]*args[m2].size);
     }
     OP_plans[ip].nshared = MAX(OP_plans[ip].nshared,nbytes);
     total_shared += nbytes;
@@ -786,17 +800,20 @@ extern op_plan * plan(char const * name, op_set set, int nargs, op_dat *args, in
 
   // work out total bandwidth requirements
 
-  OP_plans[ip].transfer = 0;
+  OP_plans[ip].transfer  = 0;
+  OP_plans[ip].transfer2 = 0;
 
   for (int b=0; b<nblocks; b++) {
     for (int m=0; m<nargs; m++) {
       if (inds[m]<0) {
         float fac = 2.0f;
         if (accs[m]==OP_READ) fac = 1.0f;
-        OP_plans[ip].transfer += fac*OP_plans[ip].nelems[b]*args[m].size;
+        OP_plans[ip].transfer  += fac*OP_plans[ip].nelems[b]*args[m].size;
+        OP_plans[ip].transfer2 += fac*OP_plans[ip].nelems[b]*args[m].size;
       }
       else {
-        OP_plans[ip].transfer += OP_plans[ip].nelems[b]*sizeof(int);
+        OP_plans[ip].transfer  += OP_plans[ip].nelems[b]*sizeof(short);
+        OP_plans[ip].transfer2 += OP_plans[ip].nelems[b]*sizeof(short);
       }
     }
     for (int m=0; m<ninds; m++) {
@@ -804,24 +821,46 @@ extern op_plan * plan(char const * name, op_set set, int nargs, op_dat *args, in
       while(inds[m2]!=m) m2++;
       float fac = 2.0f;
       if (accs[m2]==OP_READ) fac = 1.0f;
-      OP_plans[ip].transfer += fac*OP_plans[ip].ind_sizes[m][b]*args[m2].size;
+      OP_plans[ip].transfer += fac*OP_plans[ip].ind_sizes[m+b*ninds]*args[m2].size;
+
+      // work out how many cache lines are used by indirect addressing
+
+      int i_map, l_new, l_old=-1;
+      int e0 = OP_plans[ip].ind_offs[m+b*ninds];
+      int e1 = e0 + OP_plans[ip].ind_sizes[m+b*ninds];
+
+      for (int e=e0; e<e1; e++) {
+        i_map = OP_plans[ip].ind_maps[m][e];
+        l_new = (i_map*args[m2].size)/OP_cache_line_size;
+        if (l_new>l_old) OP_plans[ip].transfer2 += fac*OP_cache_line_size;
+        l_old = l_new;
+        l_new = ((i_map+1)*args[m2].size-1)/OP_cache_line_size;
+        OP_plans[ip].transfer2 += fac*(l_new-l_old)*OP_cache_line_size;
+        l_old = l_new;
+      }
+
+      // also include mappings to load/store data
+
+      fac = 1.0f;
+      if (accs[m2]==OP_RW) fac = 2.0f;
+      OP_plans[ip].transfer  += fac*OP_plans[ip].ind_sizes[m+b*ninds]*sizeof(int);
+      OP_plans[ip].transfer2 += fac*OP_plans[ip].ind_sizes[m+b*ninds]*sizeof(int);
     }
   }
 
   // print out useful information
 
   if (OP_diags>1) {
-    //for (int n=0; n<OP_plans[ip].ncolors; n++)
-    //  printf(" number of blocks of color %d = %d \n",
-    //         n,OP_plans[ip].ncolblk[n]);
     printf(" number of blocks       = %d \n",nblocks);
     printf(" number of block colors = %d \n",OP_plans[ip].ncolors);
     printf(" maximum block size     = %d \n",bsize);
     printf(" average thread colors  = %.2f \n",total_colors/nblocks);
     printf(" shared memory required = %.2f KB \n",OP_plans[ip].nshared/1024.0f);
     printf(" average data reuse     = %.2f \n",maxbytes*(set.size/total_shared));
-    printf(" total data transfer    = %.2f MB \n\n",
+    printf(" data transfer (used)   = %.2f MB \n",
                                        OP_plans[ip].transfer/(1024.0f*1024.0f));
+    printf(" data transfer (total)  = %.2f MB \n\n",
+                                       OP_plans[ip].transfer2/(1024.0f*1024.0f));
   }
 
   // validate plan info
@@ -831,16 +870,16 @@ extern op_plan * plan(char const * name, op_set set, int nargs, op_dat *args, in
   // move plan arrays to GPU
 
   for (int m=0; m<ninds; m++) {
-    mvHostToDevice(&(OP_plans[ip].ind_ptrs[m]), sizeof(int)*nindirect[m]);
-    mvHostToDevice(&(OP_plans[ip].ind_sizes[m]),sizeof(int)*nblocks);
-    mvHostToDevice(&(OP_plans[ip].ind_offs[m]), sizeof(int)*nblocks);
+    mvHostToDevice(&(OP_plans[ip].ind_maps[m]), sizeof(int)*nindirect[m]);
   }
 
   for (int m=0; m<nargs; m++) {
     if (inds[m]>=0)
-      mvHostToDevice(&(OP_plans[ip].ptrs[m]), sizeof(int)*set.size);
+      mvHostToDevice(&(OP_plans[ip].maps[m]), sizeof(short)*set.size);
   }
 
+  mvHostToDevice(&(OP_plans[ip].ind_sizes),sizeof(int)*nblocks*ninds);
+  mvHostToDevice(&(OP_plans[ip].ind_offs), sizeof(int)*nblocks*ninds);
   mvHostToDevice(&(OP_plans[ip].nthrcol),sizeof(int)*nblocks);
   mvHostToDevice(&(OP_plans[ip].thrcol ),sizeof(int)*set.size);
   mvHostToDevice(&(OP_plans[ip].offset ),sizeof(int)*nblocks);
@@ -933,8 +972,8 @@ void OP_plan_check(op_plan OP_plan, int ninds, int *inds) {
     ntot = 0;
 
     for (int n=0; n<nblock; n++) {
-      err  += (OP_plan.ind_offs[i][n] != ntot);
-      ntot +=  OP_plan.ind_sizes[i][n];
+      err  += (OP_plan.ind_offs[i+n*ninds] != ntot);
+      ntot +=  OP_plan.ind_sizes[i+n*ninds];
     }
   }
 
@@ -946,7 +985,7 @@ void OP_plan_check(op_plan OP_plan, int ninds, int *inds) {
   }
 
   //
-  // check ind_ptrs correctly ordered within each block
+  // check ind_maps correctly ordered within each block
   // and indices within range
   //
 
@@ -955,46 +994,46 @@ void OP_plan_check(op_plan OP_plan, int ninds, int *inds) {
   for (int m = 0; m<ninds; m++) {
     int m2 = 0;
     while(inds[m2]!=m) m2++;
-    int set_size = (*OP_ptr_list[OP_plan.ptr_idxs[m2]]).to.size;
+    int set_size = (*OP_map_list[OP_plan.map_idxs[m2]]).to.size;
 
     ntot = 0;
 
     for (int n=0; n<nblock; n++) {
       int last = -1;
-      for (int e=ntot; e<ntot+OP_plan.ind_sizes[m][n]; e++) {
-        err  += (OP_plan.ind_ptrs[m][e] <= last);
-        last  = OP_plan.ind_ptrs[m][e]; 
+      for (int e=ntot; e<ntot+OP_plan.ind_sizes[m+n*ninds]; e++) {
+        err  += (OP_plan.ind_maps[m][e] <= last);
+        last  = OP_plan.ind_maps[m][e]; 
       }
       err  += (last >= set_size);
-      ntot +=  OP_plan.ind_sizes[m][n];
+      ntot +=  OP_plan.ind_sizes[m+n*ninds];
     }
   }
 
   if (err != 0) {
-    printf(" *** OP_plan_check: ind_ptrs error \n");
+    printf(" *** OP_plan_check: ind_maps error \n");
   }
   else if (OP_diags>6) {
-    printf(" *** OP_plan_check: ind_ptrs OK \n");
+    printf(" *** OP_plan_check: ind_maps OK \n");
   }
 
   //
-  // check ptrs (most likely source of errors)
+  // check maps (most likely source of errors)
   //
 
   err = 0;
 
   for (int m=0; m<OP_plan.nargs; m++) {
-    if (OP_plan.ptr_idxs[m]>=0) {
-      op_ptr ptr = *OP_ptr_list[OP_plan.ptr_idxs[m]];
+    if (OP_plan.map_idxs[m]>=0) {
+      op_map map = *OP_map_list[OP_plan.map_idxs[m]];
       int    m2  = inds[m];
 
       ntot = 0;
       for (int n=0; n<nblock; n++) {
         for (int e=ntot; e<ntot+OP_plan.nelems[n]; e++) {
-          int p_local  = OP_plan.ptrs[m][e];
-          int p_global = OP_plan.ind_ptrs[m2][p_local+OP_plan.ind_offs[m2][n]]; 
+          int p_local  = OP_plan.maps[m][e];
+          int p_global = OP_plan.ind_maps[m2][p_local+OP_plan.ind_offs[m2+n*ninds]]; 
 
-          err += (p_global != ptr.ptr[OP_plan.idxs[m]+e*ptr.dim]);
+          err += (p_global != map.map[OP_plan.idxs[m]+e*map.dim]);
         }
         ntot +=  OP_plan.nelems[n];
       }
@@ -1002,10 +1041,10 @@ void OP_plan_check(op_plan OP_plan, int ninds, int *inds) {
   }
 
   if (err != 0) {
-    printf(" *** OP_plan_check: ptrs error \n");
+    printf(" *** OP_plan_check: maps error \n");
   }
   else if (OP_diags>6) {
-    printf(" *** OP_plan_check: ptrs     OK \n");
+    printf(" *** OP_plan_check: maps     OK \n");
   }
 
 

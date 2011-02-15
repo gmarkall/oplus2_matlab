@@ -44,45 +44,41 @@ by a number of sets.  Depending on the application, these sets might
 be of nodes, edges, triangular faces, quadrilateral faces, cells of
 a variety of types, far-field boundary nodes, wall boundary faces, etc.
 Associated with these sets are both data (e.g.~coordinate data at 
-nodes) and pointers to other sets (e.g.~edge pointers to the two 
+nodes) and mappings to other sets (e.g.~edge mapping to the two 
 nodes at each end of the edge).  All of the numerically-intensive
 operations can then be described as a loop over all members of a set, 
 carrying out some operations on data associated directly
-with the set or with another set through a pointer.   
+with the set or with another set through a mapping.   
 
 OP2 makes the important restriction that the order in which the
 function is applied to the members of the set must not affect the
 final result.  This allows the parallel implementation to choose
-its own ordering to achieve maximum parallel efficiency.
+its own ordering to achieve maximum parallel efficiency. 
+Two other restrictions are that the sets and maps are static 
+(i.e.~they do not change) and the operands in the set operations 
+are not referenced through a double level of mapping indirection 
+(i.e.~through a mapping to another set which in turn uses another 
+mapping to data in a third set).
 
-Two other restrictions in the current implementation are that 
-the sets and pointers are static (i.e.~they do not change) and the 
-operands in the set operations are not referenced through a double 
-level of pointer indirection (i.e.~through a pointer to another set 
-which in turn uses another pointer to data in a third set).
-
-In the long-term, this library will allow users to write a single
-program which can be built into a variety of different executables for
-different platforms:
+OP2 currently enables users to write a single program which can be 
+built into three different executables for different platforms:
 \begin{itemize}
 \item
 single-threaded on a CPU
 \item
-multi-threaded / vectorised on a CPU using OpenMP and/or SSE/AVX vectors
+parallelised using CUDA for NVIDIA GPUs
 \item
-parallelised on GPUs using CUDA or OpenCL
-\item
-distributed-memory MPI parallelisation in combination with any of the above
+multi-threaded using OpenMP for multicore x86 systems
 \end{itemize}
 
-The higher-level distributed-memory MPI parallelisation will 
+In the longer-term there will be support for AVX vectorisation for
+x86 CPUs, and OpenCL for both CPUs and GPUS.
+
+There will also be support for distributed-memory MPI 
+parallelisation in combination with any of the above.  This will 
 require parallel file I/O and so there will be routines to handle 
 file I/O for the main datasets, as well as routines to handle 
 terminal I/O.
-
-However, the initial version described in this document is for 
-execution on a shared-memory system, and the initial implementation
-is for CUDA execution on a single GPU.
 
 \newpage
 \section{Overview}
@@ -97,19 +93,20 @@ debugging the program, often using a small testcase
 running the program on increasingly large applications
 \end{itemize}
 
-With OP2 we want to simplify the first two tasks, while providing
-as much performance as possible for the third one.  
+With OP2 we want to simplify the first two tasks, while 
+providing as much performance as possible for the third one.  
 
 To achieve the high performance for large applications, a 
-preprocessor will be needed to generate the executable for GPUs.
-However, to keep the initial development simple, the single-threaded 
-executable does not use any special tools; the user's main code
-is simply linked to a set of library routines, most of which do
-little more than error-checking to assist the debugging process 
-by checking the correctness of the user's program.  Note that this 
-single-threaded version will not execute efficiently.  A new 
-preprocessor (which has not yet been developed) will be needed 
-to get efficient OpenMP/SSE/AVX execution on CPUs.
+preprocessor is needed to generate the CUDA code for GPUs 
+or OpenMP code for multicore x86 systems.  However, to keep 
+the initial development simple, the single-threaded executable 
+does not use any special tools; the user's main code is simply 
+linked to a set of library routines, most of which do little 
+more than error-checking to assist the debugging process by 
+checking the correctness of the user's program.  Note that this 
+single-threaded version will not execute efficiently.  The
+preprocessor is needed to generate efficient OpenMP code for 
+x86 systems.
 
 Figure \ref{fig:seq} shows the build process for a single 
 thread CPU executable.  The user's main program (in this case 
@@ -117,19 +114,21 @@ thread CPU executable.  The user's main program (in this case
 linked to the OP routines in {\tt op\_seq.c} using {\tt g++},
 perhaps controlled by a Makefile.
 
-Figure \ref{fig:op} shows the build process for the corresponding
+Figure \ref{fig:cuda} shows the build process for the corresponding
 CUDA executable.  The preprocessor parses the user's main program 
 and produces a modified main program and a CUDA file which
 includes a separate file for each of the kernel functions.  These 
 are then compiled and linked to the OP routines in {\tt op\_lib.cu} 
 using {\tt g++} and the NVIDIA CUDA compiler {\tt nvcc}, again 
 perhaps controlled by a Makefile.
-
 As well as the header file {\tt op\_seq.h} which is included by
 the user's main code {\tt jac.cpp}, there is a header file
 {\tt op\_datatypes.h} which is included by all of the files
 in the CUDA implementation, and by {\tt op\_seq.h}.
 
+Figure \ref{fig:op} shows the OpenMP build process which is very 
+similar to the CUDA process except that it uses {\tt *.cpp} files
+produced by the preprocessor instead of {\tt *.cu} files.
 
 In looking at the API specification, users may think it is
 a little verbose in places. e.g.~users have to re-supply 
@@ -137,7 +136,7 @@ information about the datatype of the datasets being used
 in a parallel loop.  This is a deliberate choice to simplify
 the task of the preprocessor, and therefore hopefully reduce
 the chance for errors.  It is also motivated by the thought that
-{\bf ``programming is easy; it's the debugging which is difficult''}.
+{\bf ``programming is easy; it's debugging which is difficult''}.
 i.e.~writing code isn't time-consuming, it's correcting it
 which takes the time.  Therefore, it's not unreasonable to ask
 the programmer to supply redundant information, but be assured 
@@ -216,6 +215,49 @@ both in the single-threaded library and in the CUDA library.
 \end{center}
 
 \caption{CUDA code build process}
+\label{fig:cuda}
+\end{figure}
+
+
+
+\begin{figure}
+\begin{center}
+{\setlength{\unitlength}{1in}
+\begin{picture}(7,5)
+
+\put(1.5,4){\framebox(1,0.5){\tt jac.cpp}}
+
+\put(2.0,4.0){\vector(0,-1){0.625}}
+
+\put(2.1,3.0){\oval(4.2,0.75)}
+\put(2.1,3.0){\makebox(0,0){op2.m preprocessor}}
+
+\put(0.5,2.625){\vector(0,-1){0.625}}
+\put(2.0,2.625){\vector(0,-1){0.625}}
+\put(3.5,2.625){\vector(0,-1){0.625}}
+
+\put(0.0,1.5){\framebox(1,0.5){\tt jac\_op.cpp}}
+\put(1.3,1.5){\framebox(1.2,0.5){\tt jac\_kernels.cpp}}
+\put(2.8,1.5){\framebox(1.4,0.5){}}
+\put(3.5,1.85){\makebox(0,0){\tt res\_kernel.cpp}}
+\put(3.5,1.65){\makebox(0,0){\tt update\_kernel.cpp}}
+\put(4.5,1.5){\framebox(1,0.5){\tt op\_lib.cpp}}
+
+\put(0.5,1.5){\vector(0,-1){0.625}}
+\put(2.0,1.5){\vector(0,-1){0.625}}
+\put(5.0,1.5){\vector(0,-1){0.625}}
+
+\put(2.62,1.75){\vector(-1,0){0.1}}
+\put(2.78,1.75){\line(-1,0){0.1}}
+
+
+\put(2.75,0.5){\oval(5.5,0.75)}
+\put(2.75,0.5){\makebox(0,0){make / icc}}
+
+\end{picture}}
+\end{center}
+
+\caption{OpenMP code build process}
 \label{fig:op}
 \end{figure}
 
@@ -238,14 +280,14 @@ both in the single-threaded library and in the CUDA library.
 \item[name]          a name used for output diagnostics
 \end{routine}
 
-\begin{routine} {op\_decl\_ptr(op\_set from, op\_set to, int dim, int *iptr, op\_ptr *ptr, char *name)}
-{This routine declares information about a pointer from one set to another.}
+\begin{routine} {op\_decl\_map(op\_set from, op\_set to, int dim, int *imap, op\_map *map, char *name)}
+{This routine declares information about a mapping from one set to another.}
 
 \item[from]          set pointed from
 \item[to]            set pointed to
-\item[dim]           number of pointers per element
-\item[iptr]          input pointer table
-\item[ptr]           output OP pointer ID
+\item[dim]           number of mappings per element
+\item[imap]          input mapping table
+\item[map]           output OP mapping ID
 \item[name]          a name used for output diagnostics
 \end{routine}
 
@@ -291,7 +333,7 @@ variable.}
 
 
 \begin{routine} {op\_diagnostic\_output()}
-{This routine prints out various useful bits of diagnostic info about sets, pointers and datasets}
+{This routine prints out various useful bits of diagnostic info about sets, mappings and datasets}
 \item \vspace{-0.3in}
 \end{routine}
 
@@ -310,17 +352,17 @@ As an example, the parallel loop syntax when the user's kernel function has 3 ar
 with the third being a local constant or global reduction array, is:
 
 \begin{routine} {op\_par\_loop\_3(void (*kernel)(T0 *, T1 *, T2 *), char *name, op\_set set,\\
-\hspace*{0.13in}    op\_dat arg0, int idx0, op\_ptr ptr0, int dim0, char *typ0, op\_access acc0,\\
-\hspace*{0.13in}    op\_dat arg1, int idx1, op\_ptr ptr1, int dim1, char *typ1, op\_access acc1,\\
-\hspace*{0.13in}    T2     *arg2, int idx2, op\_ptr ptr2, int dim2, char *typ2, op\_access acc2)}{}
+\hspace*{0.13in}    op\_dat arg0, int idx0, op\_map map0, int dim0, char *typ0, op\_access acc0,\\
+\hspace*{0.13in}    op\_dat arg1, int idx1, op\_map map1, int dim1, char *typ1, op\_access acc1,\\
+\hspace*{0.13in}    T2     *arg2, int idx2, op\_map map2, int dim2, char *typ2, op\_access acc2)}{}
 
 \item[kernel]     user's kernel function with 3 arguments of arbitrary type\\
                   (this is only used for the single-threaded CPU build)
 \item[name]       name of kernel function, used for output diagnostics
 \item[set]        OP set ID, giving set over which the parallel computation is performed
 \item[arg]        OP dataset ID, or pointer to constant or global reduction array
-\item[idx]        index of pointer to be used (-1 $\equiv$ no pointer indirection)
-\item[ptr]        OP pointer ID ({\tt OP\_ID} for identity mapping, i.e.~no pointer indirection,
+\item[idx]        index of mapping to be used (-1 $\equiv$ no mapping indirection)
+\item[map]        OP mapping ID ({\tt OP\_ID} for identity mapping, i.e.~no mapping indirection,
                   {\tt OP\_GBL} for constant or global reduction array)
 \item[dim]        dataset dimension (redundant info, checked at run-time for consistency)
 
@@ -343,7 +385,7 @@ performs a calculation for a single set element.
 This will get converted by a preprocessor into a routine called by the CUDA kernel 
 function.  The preprocessor will also take the specification of the arguments and turn 
 this into the CUDA kernel function which loads in indirect data (i.e.~data addressed 
-indirectly through pointers) from the device main memory into the shared storage, 
+indirectly through a mapping) from the device main memory into the shared storage, 
 then calls the converted {\tt kernel} function for each element for each line in 
 the above specification.  Indirect data is incremented in shared memory (with
 thread coloring to avoid possible data conflicts) before being updated at the end 
@@ -351,11 +393,17 @@ of the CUDA kernel call.
 
 The restriction that {\tt OP\_WRITE} and {\tt OP\_RW} access must not have any 
 potential data conflict means that two different elements of the set cannot 
-through pointer indirection reference the same elements of the dataset.  
+through a mapping indirection reference the same elements of the dataset.  
 
 %(If they did, it would be undetermined which final value would be assigned to
 %the dataset element.  Users might argue that it would be OK if both assigned
 %the same value, but I don't want to handle that complication.)
+
+Furthermore, with {\tt OP\_WRITE} the user's kernel function must set the 
+value of all {\tt DIM} components of the dataset.  If the user's kernel function
+does not set all of them, the access should be specified to be {\tt OP\_RW}
+since the kernel function needs to read in the old values of the components
+which are not being modified. 
 
 Different numbers of arguments are handled similarly by routines with names
 of the form {\tt op\_par\_loop\_n} where {\tt n} is the number of arguments.
@@ -383,12 +431,17 @@ in input arguments.
 
 a ``zero element'' declaration of the form:
 
-{\tt \#define ZERO\_uint    0;}
+{\tt \#define ZERO\_mytype    0;}
 
 as well as an appropriate overloaded addition operator  if there is any 
 {\tt OP\_INC} access to the datatype.  The zero element and overloaded 
 addition have to be such that $0 + x = x$ where $x$ represents any element 
 of the user's datatype and $0$ represents the declared zero element.
+
+\item
+
+an overloaded implementation of the inequality operators $<$ and $>$ 
+if there are any {\tt OP\_MIN, OP\_MAX} accesses to the datatype.
 
 \end{itemize}
 
@@ -453,7 +506,7 @@ with various other standards like
 \href{http://cgns.sourceforge.net/hdf5.html}{CGNS}
 layered on top.
 
-Originally, my idea was to modify the OP2 set, pointer and dataset declarations
+Originally, my idea was to modify the OP2 set, mapping and dataset declarations
 so that these were read in by OP2 from a specified HDF5 file using specified 
 keywords.  Thus the OP2 library would have been entirely responsible for the 
 parallel file I/O.
@@ -472,7 +525,7 @@ developers may choose to use unaltered, and others may modify to suit their need
 The rationale for this is to allow developers to make the tradeoff between 
 ease-of-use and flexibility.  Some will want maximum ease-of-use and are prepared 
 to pay the price of working with HDF5 files with the flat keyword-based hierarchy
-which we will assume.  Others (including Rolls-Royce?) will want the flexibility 
+which we will assume.  Others will want the flexibility 
 to manage their data storage in the way they wish, and will accept the additional
 programming effort this will entail.
 
@@ -484,30 +537,30 @@ API are as follows:
 \item {\bf op\_decl\_set}: {\tt size} is the number of elements of the set which
 will be provided by this MPI process
 
-\item {\bf op\_decl\_ptr}: {\tt iptr} provides the part of the pointer table 
+\item {\bf op\_decl\_map}: {\tt imap} provides the part of the mapping table 
 which corresponds to its share of the {\tt from} set
 
 \item {\bf op\_decl\_dat}: {\tt dat} provides the data which corresponds to its 
 share of {\tt set}
 \end{itemize}
 
-For example, if an application has 4 processes, $4\times 10^6$ nodes and 
-$16 \times 10^6$ edges, then each process might be responsible for providing
-$10^6$ nodes and $4\times 10^6$ edges. Process 0 (the one with MPI rank 0)
+For example, if an application has 4 processes, $4\!\times\! 10^6$ nodes and 
+$16 \!\times\! 10^6$ edges, then each process might be responsible for providing
+$10^6$ nodes and $4\!\times\! 10^6$ edges. Process 0 (the one with MPI rank 0)
 would be responsible for providing the first $10^6$ nodes, process 1 the 
 next $10^6$ nodes, and so on, and the same for the edges.
 
-The edge $\rightarrow$ node pointer tables would still contain the same 
+The edge $\rightarrow$ node mapping tables would still contain the same 
 information as in a single process implementation, but process 0 would provide
-the first $4\times 10^6$ entries, process 1 the next $4\times 10^6$ entries, 
+the first $4\!\times\! 10^6$ entries, process 1 the next $4\!\times\! 10^6$ entries, 
 and so on.
 
 This is effectively using a simple contiguous block partitioning of the datasets, 
 but it is very important to note that this will not be used for the parallel 
 computation.  OP2 will re-partition the datasets (in parallel, probably using 
 \href{http://glaros.dtc.umn.edu/gkhome/metis/parmetis/overview}{\tt parmetis}), 
-will re-number the pointer tables as needed (as well as constructing import/export 
-lists for halo data exchange) and will move all data/pointers/datasets to the 
+will re-number the mapping tables as needed (as well as constructing import/export 
+lists for halo data exchange) and will move all data/mappings/datasets to the 
 correct MPI process.
 
 The second layer would look similar to the existing API:
@@ -516,8 +569,8 @@ The second layer would look similar to the existing API:
 replaced by {\tt file} which defines the HDF5 file from which {\tt size} 
 is read using keyword {\tt name}
 
-\item {\bf op\_decl\_ptr\_hdf5}: similar to {\bf op\_decl\_ptr} but with {\tt iptr} 
-replaced by {\tt file} from which the pointer table is read using keyword {\tt name}
+\item {\bf op\_decl\_map\_hdf5}: similar to {\bf op\_decl\_map} but with {\tt imap} 
+replaced by {\tt file} from which the mapping table is read using keyword {\tt name}
 
 \item {\bf op\_decl\_dat\_hdf5}: similar to {\bf op\_decl\_dat} but with {\tt dat} 
 replaced by {\tt file} from which the data is read using keyword {\tt name}

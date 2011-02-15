@@ -72,8 +72,7 @@ int main(int argc, char **argv){
   float dx;
 
   op_set nodes, edges;
-  // op_ptr pedge1, pedge2;
-  op_ptr ppedge;
+  op_map ppedge;
   op_dat p_A, p_r, p_u, p_du;
 
   nnode = (NN-1)*(NN-1);
@@ -148,9 +147,7 @@ int main(int argc, char **argv){
   op_decl_set(nnode, nodes,"nodes");
   op_decl_set(nedge, edges,"edges");
 
-  op_decl_ptr(edges,nodes,2,pp, ppedge,"ppedge");
-  // op_decl_ptr(edges,nodes,1,p1, pedge1,"pedge1");
-  // op_decl_ptr(edges,nodes,1,p2, pedge2,"pedge2");
+  op_decl_map(edges,nodes,2,pp, ppedge,"ppedge");
 
   op_decl_dat(edges,3,"double",A,  p_A, "p_A" );
   op_decl_dat(nodes,2,"float", r,  p_r, "p_r" );
@@ -167,21 +164,12 @@ int main(int argc, char **argv){
   float u_sum, u_max, beta = 1.0f;
 
   for (int iter=0; iter<NITER; iter++) {
-    /*
-    op_pr_loop_4(res,"res", edges,
-                  p_A,  -1,OP_ID,  1,"double",OP_READ,
-                  p_u,   0,pedge2, 1,"float", OP_READ,
-                  p_du,  0,pedge1, 1,"float", OP_INC,
-                  &beta,-1,OP_GBL, 1,"float", OP_READ);
-    */
-
     op_par_loop_4(res,"res", edges,
                   p_A,  -1,OP_ID,  3,"double",OP_READ,
                   p_u,   1,ppedge, 2,"float", OP_READ,
                   p_du,  0,ppedge, 3,"float", OP_INC,
                   &beta,-1,OP_GBL, 1,"float", OP_READ);
 
-    // int udim = 1;
     u_sum = 0.0f;
     u_max = 0.0f;
     op_par_loop_5(update,"update", nodes,

@@ -72,8 +72,7 @@ int main(int argc, char **argv){
   float dx;
 
   op_set nodes, edges;
-  // op_ptr pedge1, pedge2;
-  op_ptr ppedge;
+  op_map ppedge;
   op_dat p_A, p_r, p_u, p_du;
 
   nnode = (NN-1)*(NN-1);
@@ -133,7 +132,7 @@ int main(int argc, char **argv){
   op_decl_set(nnode, nodes,"nodes");
   op_decl_set(nedge, edges,"edges");
 
-  op_decl_ptr(edges,nodes,2,pp, ppedge,"ppedge");
+  op_decl_map(edges,nodes,2,pp, ppedge,"ppedge");
 
   op_decl_dat(edges,1,"double",A,  p_A, "p_A" );
   op_decl_dat(nodes,1,"float", r,  p_r, "p_r" );

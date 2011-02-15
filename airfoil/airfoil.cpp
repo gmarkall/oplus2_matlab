@@ -74,7 +74,7 @@ int main(int argc, char **argv){
   float  rms;
 
   op_set nodes, edges, bedges, cells;
-  op_ptr pedge, pecell, pbedge, pbecell, pcell;
+  op_map pedge, pecell, pbedge, pbecell, pcell;
   op_dat p_x, p_q, p_qold, p_res, p_adt, p_bound;
 
   // read in grid
@@ -158,11 +158,11 @@ int main(int argc, char **argv){
   op_decl_set(nbedge, bedges,"bedges");
   op_decl_set(ncell,  cells, "cells");
 
-  op_decl_ptr(edges, nodes,2,edge,  pedge,  "pedge");
-  op_decl_ptr(edges, cells,2,ecell, pecell, "pecell");
-  op_decl_ptr(bedges,nodes,2,bedge, pbedge, "pbedge");
-  op_decl_ptr(bedges,cells,1,becell,pbecell,"pbecell");
-  op_decl_ptr(cells, nodes,4,cell,  pcell,  "pcell");
+  op_decl_map(edges, nodes,2,edge,  pedge,  "pedge");
+  op_decl_map(edges, cells,2,ecell, pecell, "pecell");
+  op_decl_map(bedges,nodes,2,bedge, pbedge, "pbedge");
+  op_decl_map(bedges,cells,1,becell,pbecell,"pbecell");
+  op_decl_map(cells, nodes,4,cell,  pcell,  "pcell");
 
   op_decl_dat(bedges,1,"int"  ,bound,p_bound,"p_bound");
   op_decl_dat(nodes ,2,"float",x    ,p_x    ,"p_x");

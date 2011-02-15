@@ -11,10 +11,16 @@ LIB		:= -L$(CUDA)/lib64
 # set flags for compilation and linking
 #
 
+# -Xptxas -dlcm=ca   => use L1 cache
+# -Xptxas -dlcm=cg   => no L1 cache
+
 #CCFLAGS		:= -g -fPIC -DUNIX -Wall -Wextra
 #NVCCFLAGS	:= -g -G -arch=sm_20 -Xptxas=-v -use_fast_math
 CCFLAGS		:= -O3 -fPIC -DUNIX -Wall -Wextra
-NVCCFLAGS	:= -O3 -arch=sm_20 -Xptxas=-v -use_fast_math
+#NVCCFLAGS	:= -O3 -maxrregcount 48 -arch=sm_20 \
+#		   -Xptxas -dlcm=cg -Xptxas=-v -use_fast_math
+NVCCFLAGS	:= -O3 -arch=sm_20 \
+		   -Xptxas -dlcm=ca -Xptxas=-v -use_fast_math
 LIBS		:= -lcudart
 OMP		:= -fopenmp -lgomp
 
@@ -53,10 +59,10 @@ airfoil_op:	airfoil_op.cpp airfoil_kernels.cpp \
 airfoil_cuda:	airfoil_op.o airfoil_kernels.o
 		g++ -fPIC -o airfoil_cuda airfoil_op.o airfoil_kernels.o $(LIB) $(LIBS)
 
-airfoil_op.o:	airfoil_op.cpp $(OP2)/op_datatypes.h
+airfoil_op.o:	airfoil_op.cpp $(OP2)/op_datatypes.h Makefile
 		g++ $(INC) $(CCFLAGS) -c -o airfoil_op.o airfoil_op.cpp
 
-airfoil_kernels.o:	airfoil_kernels.cu \
+airfoil_kernels.o:	airfoil_kernels.cu  Makefile \
 		$(OP2)/op_lib.cu $(OP2)/op_datatypes.h \
 		save_soln_kernel.cu save_soln.h \
 		adt_calc_kernel.cu  adt_calc.h \

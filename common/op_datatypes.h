@@ -106,9 +106,9 @@ typedef struct {
               to;     // set pointed to
   int         dim,    // dimension of pointer
               index,  // index into list of pointers
-             *ptr;    // array defining pointer
+             *map;    // array defining pointer
   char const *name;   // name of pointer
-} op_ptr;
+} op_map;
 
 typedef struct {
   op_set      set;    // set on which data is defined
@@ -122,16 +122,16 @@ typedef struct {
 } op_dat;
 
 // identity mapping
-#define OP_ID  (op_ptr) {{0,0,"null"},{0,0,"null"},0,-1,NULL,"id"}
+#define OP_ID  (op_map) {{0,0,"null"},{0,0,"null"},0,-1,NULL,"id"}
 
 // global identifier
-#define OP_GBL (op_ptr) {{0,0,"null"},{0,0,"null"},0,-2,NULL,"gbl"}
+#define OP_GBL (op_map) {{0,0,"null"},{0,0,"null"},0,-2,NULL,"gbl"}
 
 typedef struct {
   // input arguments
   char const  *name;
   int          set_index, nargs;
-  int         *arg_idxs, *idxs, *ptr_idxs, *dims;
+  int         *arg_idxs, *idxs, *map_idxs, *dims;
   char const **typs;
   op_access   *accs;
 
@@ -139,23 +139,25 @@ typedef struct {
   int        *nthrcol;  // number of thread colors for each block
   int        *thrcol;   // thread colors
   int        *offset;   // offset for primary set
-  int       **ind_ptrs; // pointers for indirect datasets
-  int       **ind_offs; // offsets for indirect datasets
-  int       **ind_sizes;// sizes for indirect datasets
-  int       **ptrs;     // regular pointers, renumbered as needed
+  int       **ind_maps; // pointers for indirect datasets
+  int        *ind_offs; // offsets for indirect datasets
+  int        *ind_sizes;// sizes for indirect datasets
+  short     **maps;     // regular pointers, renumbered as needed
   int        *nelems;   // number of elements in each block
   int         ncolors;  // number of block colors
   int        *ncolblk;  // number of blocks for each color
   int        *blkmap;   // block mapping
   int         nshared;  // bytes of shared memory required
   float       transfer; // bytes of data transfer per kernel call
+  float       transfer2;// bytes of cache line per kernel call
 } op_plan;
 
 typedef struct {
   char const *name;     // name of kernel function
   int         count;    // number of times called
   float       time;     // total execution time
-  float       transfer; // total transfer
+  float       transfer; // bytes of data transfer (used)
+  float       transfer2;// bytes of data transfer (total)
 } op_kernel;
 
 //
@@ -171,10 +173,10 @@ typedef struct {
 
 //
 // alignment macro based on example on page 50 of CUDA Programming Guide version 3.0
-// rounds up to nearest multiple of 8 bytes
+// rounds up to nearest multiple of 16 bytes
 //
 
-#define ROUND_UP(bytes) (((bytes) + 7) & ~7)
+#define ROUND_UP(bytes) (((bytes) + 15) & ~15)
 
 //
 // OP function prototypes
@@ -184,7 +186,7 @@ void op_init(int, char **, int);
 
 void op_decl_set(int, op_set &, char const *);
 
-void op_decl_ptr(op_set, op_set, int, int *, op_ptr &, char const *);
+void op_decl_map(op_set, op_set, int, int *, op_map &, char const *);
 
 void op_decl_dat_char(op_set, int, char const *, int, char *, op_dat &, char const *);
 
