@@ -73,3 +73,23 @@ make dbg=1 emu=1
 
 to produce the debug or emulation executables.
 
+
+The preprocessor also generates the files
+jac_kernels.cpp
+res_kernel.cpp
+update_kernel.cpp
+
+which can be linked by the command
+
+g++ -o jac_op jac_op.cpp jac_kernels.cpp
+
+to form an x86 executable which uses the same execution plans as the CUDA
+version, and shares about 95% of its code.  The preprocessor could be 
+modified fairly easily to generate OpenMP code, but extending it to SSE/AVX 
+code would require vectorisation of the user-supplied kernel functions.
+
+---------------------------------------------------------------------------
+
+To produce tar file:
+
+tar cvf op2.tar *.cpp *.h *.cu *.m Makefile *.tex *.pdf airfoil README 

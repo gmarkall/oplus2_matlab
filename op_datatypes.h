@@ -42,16 +42,41 @@
 #define OP_DATATYPES
 
 enum op_access   { OP_READ, OP_WRITE, OP_RW, OP_INC, OP_MIN, OP_MAX };
-enum op_datatype { OP_FLOAT, OP_DOUBLE, OP_INT, OP_BOOL };
 
 //
 // run-time type-checking routines
 //
 
-inline int type_error(const double *,op_datatype type){return (type != OP_DOUBLE);}
-inline int type_error(const float  *,op_datatype type){return (type != OP_FLOAT);}
-inline int type_error(const int    *,op_datatype type){return (type != OP_INT);}
-inline int type_error(const bool   *,op_datatype type){return (type != OP_BOOL);}
+typedef long long ll;
+typedef unsigned long long ull;
+
+inline int type_error(const double *,const char *type){return strcmp(type,"double");}
+inline int type_error(const float  *,const char *type){return strcmp(type,"float" );}
+inline int type_error(const int    *,const char *type){return strcmp(type,"int"   );}
+inline int type_error(const uint   *,const char *type){return strcmp(type,"uint"  );}
+inline int type_error(const ll     *,const char *type){return strcmp(type,"ll"    );}
+inline int type_error(const ull    *,const char *type){return strcmp(type,"ull"   );}
+inline int type_error(const bool   *,const char *type){return strcmp(type,"bool"  );}
+
+//
+// add in user's datatypes
+//
+
+#ifdef OP_USER_DATATYPES
+#include <OP_USER_DATATYPES>
+#endif
+
+//
+// zero constants
+//
+
+#define ZERO_double  0.0;
+#define ZERO_float   0.0f;
+#define ZERO_int     0;
+#define ZERO_uint    0;
+#define ZERO_ll      0;
+#define ZERO_ull     0;
+#define ZERO_bool    0;
 
 //
 // structures
@@ -79,25 +104,22 @@ typedef struct {
               size;   // size of each element in dataset
   char       *dat,    // data on host
              *dat_d;  // data on device (GPU)
-  op_datatype type;   // datatype
-  char const *name;   // name of dataset
+  char const *type,   // datatype
+             *name;   // name of dataset
 } op_dat;
 
-// null set
-#define OP_NULL_SET (op_set) {0,0,"null"}
-
 // identity mapping
-#define OP_ID (op_ptr) {OP_NULL_SET,OP_NULL_SET,0,-1,NULL,"id"}
+#define OP_ID  (op_ptr) {{0,0,"null"},{0,0,"null"},0,-1,NULL,"id"}
 
 // global identifier
-#define OP_GBL (op_ptr) {OP_NULL_SET,OP_NULL_SET,0,-2,NULL,"gbl"}
+#define OP_GBL (op_ptr) {{0,0,"null"},{0,0,"null"},0,-2,NULL,"gbl"}
 
 typedef struct {
   // input arguments
   char const  *name;
   int          set_index, nargs;
   int         *arg_idxs, *idxs, *ptr_idxs, *dims;
-  op_datatype *typs;
+  char const **typs;
   op_access   *accs;
 
   // execution plan
@@ -115,18 +137,56 @@ typedef struct {
   int         nshared;  // bytes of shared memory required
 } op_plan;
 
-#endif
 
 //
 //  min / max definitions
 //
 
-#ifndef MIN
 #define MIN(a,b) ((a<b) ? (a) : (b))
-#endif
-
-#ifndef MAX
 #define MAX(a,b) ((a>b) ? (a) : (b))
-#endif
 
+//
+// alignment macro based on example on page 50 of CUDA Programming Guide version 3.0
+// rounds up to nearest multiple of 8 bytes
+//
+
+#define ROUND_UP(bytes) (((bytes) + 7) & ~7)
+
+//
+// OP function prototypes
+//
+
+void op_init(int, char **);
+
+void op_decl_set(int, op_set &, char const *);
+
+void op_decl_ptr(op_set, op_set, int, int *, op_ptr &, char const *);
+
+void op_decl_dat_char(op_set, int, char const *, int, char *, op_dat &, char const *);
+
+template < class T >
+void op_decl_dat(op_set set, int dim, char const *type, T *dat, op_dat &data, char const *name){
+  if (type_error(dat,type)) {
+    printf("incorrect type specified for dataset \"%s\" \n",name);  exit(1);
+  }
+  op_decl_dat_char(set, dim, type, sizeof(T), (char *)dat, data, name);
+}
+
+void op_decl_const_char(int, char const *, int, char *, char const *);
+
+template < class T >
+void op_decl_const(int dim, char const *type, T *dat, char const *name){
+  if (type_error(dat,type)) {
+    printf("incorrect type specified for constant \"%s\" \n",name);  exit(1);
+  }
+  op_decl_const_char(dim, type, sizeof(T), (char *)dat, name);
+}
+
+void op_fetch_data(op_dat);
+
+void op_diagnostic_output();
+
+void op_exit();
+
+#endif
 

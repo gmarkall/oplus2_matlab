@@ -35,11 +35,13 @@
 #include <stdio.h>                                                          
 #include <string.h>                                                         
 #include <math.h>                                                           
+
+#ifndef OP_x86
 #include <cutil_inline.h>
 #include <math_constants.h>
-#include "op_datatypes.h"
-#include "op_atomics.h"
+#endif
 
+#include "op_datatypes.h"
 
 //
 // global variables
@@ -57,19 +59,18 @@ op_plan   OP_plans[100];
 
 // arrays for global constants and reductions
 
-int   OP_consts_bytes=0,          OP_reduct_bytes=0;
+int   OP_consts_bytes=0,    OP_reduct_bytes=0;
 char *OP_consts_h, *OP_consts_d, *OP_reduct_h, *OP_reduct_d;
-
 
 //
 // OP functions
 //
 
-extern void op_init(int argc, char **argv){
+void op_init(int argc, char **argv){
   cutilDeviceInit(argc, argv);
 }
 
-extern void op_decl_set(int size, op_set &set, char const *name){
+void op_decl_set(int size, op_set &set, char const *name){
   set.size = size;
   set.name = name;
 
@@ -77,7 +78,7 @@ extern void op_decl_set(int size, op_set &set, char const *name){
   OP_set_list[OP_set_index++] = &set;
 }
 
-extern void op_decl_ptr(op_set from, op_set to, int dim, int *ptr, op_ptr &pointer, char const *name){
+void op_decl_ptr(op_set from, op_set to, int dim, int *ptr, op_ptr &pointer, char const *name){
   pointer.from = from;
   pointer.to   = to;
   pointer.dim  = dim;
@@ -88,71 +89,28 @@ extern void op_decl_ptr(op_set from, op_set to, int dim, int *ptr, op_ptr &point
   OP_ptr_list[OP_ptr_index++] = &pointer;
 }
 
-
-template <class T>
-void op_decl_dat_T(op_set set, int dim, op_datatype type, T *dat, op_dat &data, char const *name){
-
-  if (type_error(dat,type)) {
-    printf("incorrect type specified for dataset \"%s\" \n",name);  exit(1);
-  }
-
+void op_decl_dat_char(op_set set, int dim, char const *type, int size, char *dat, op_dat &data, char const *name){
   data.set   = set;
   data.dim   = dim;
-  data.dat   = (char *) dat;
+  data.dat   = dat;
   data.name  = name;
   data.type  = type;
-  data.size  = dim*sizeof(T);
+  data.size  = dim*size;
   data.index = OP_dat_index;
   OP_dat_list[OP_dat_index++] = &data;
 
+#ifndef OP_x86
   cutilSafeCall(cudaMalloc((void **)&data.dat_d, data.size*set.size));
   cutilSafeCall(cudaMemcpy(data.dat_d, data.dat, data.size*set.size,
                 cudaMemcpyHostToDevice));
-}
-
-extern
-void op_decl_dat(op_set set, int dim, op_datatype type, double *dat, op_dat &data, char const *name){
-  op_decl_dat_T(set, dim, type, dat, data, name);
-}
-
-extern
-void op_decl_dat(op_set set, int dim, op_datatype type, float *dat, op_dat &data, char const *name){
-  op_decl_dat_T(set, dim, type, dat, data, name);
-}
-
-extern
-void op_decl_dat(op_set set, int dim, op_datatype type, int *dat, op_dat &data, char const *name){
-  op_decl_dat_T(set, dim, type, dat, data, name);
-}
-
-
-template <class T>
-void op_decl_const_T(int dim, op_datatype type, T *dat, char const *name){
-  if (type_error(dat,type)) {
-    printf("incorrect type specified for constant \"%s\" \n",name);  exit(1);
-  }
-
-  // printf(" op_decl_const: name = %s, size = %d\n",name,sizeof(T)*dim);
-  cutilSafeCall( cudaMemcpyToSymbol(name, dat, sizeof(T)*dim));
-}
-
-extern void op_decl_const(int dim, op_datatype type, double *dat, char const *name){
-            op_decl_const_T(dim, type, dat, name);
-}
-
-extern void op_decl_const(int dim, op_datatype type, float *dat, char const *name){
-            op_decl_const_T(dim, type, dat, name);
-}
-
-extern void op_decl_const(int dim, op_datatype type, int *dat, char const *name){
-            op_decl_const_T(dim, type, dat, name);
+#endif
 }
 
 //
-// diagnostic output routine
+// void op_decl_const_char  -- now defined in op_seq.cpp or *_kernels.cu
 //
 
-extern void op_diagnostic_output(){
+void op_diagnostic_output(){
   if (OP_DIAGS > 1) {
     printf("\n  OP diagnostic output\n");
     printf(  "  --------------------\n");
@@ -181,8 +139,13 @@ extern void op_diagnostic_output(){
   }
 }
 
+void op_exit(){
+}
 
+
+//
 // comparison function for integer quicksort
+//
 
 int comp(const void *a2, const void *b2) {
   int *a = (int *)a2;
@@ -200,6 +163,8 @@ int comp(const void *a2, const void *b2) {
 //
 // utility routine to move arrays to GPU device
 //
+
+#ifndef OP_x86
 
 template <class T>
 void mvHostToDevice(T **ptr, int size) {
@@ -267,11 +232,275 @@ void mvReductArraysToHost(int reduct_bytes) {
 
 
 //
+// reduction routine for arbitrary datatypes
+//
+
+__device__ int OP_reduct_lock=0;  // important: must be initialised to 0
+
+
+template < op_access reduction >
+__inline__ __device__ void op_reduction(volatile float *dat_g, float dat_l)
+{
+  int tid = threadIdx.x;
+  int d   = blockDim.x>>1; 
+  extern __shared__ float temp[];
+
+  if (tid>=d) temp[tid-d] = dat_l;
+  __syncthreads();
+
+  if (tid<d) {
+    switch (reduction) {
+    case OP_INC:
+      temp[tid] = temp[tid] + dat_l;
+      break;
+    case OP_MIN:
+      if(dat_l<temp[tid]) temp[tid] = dat_l;
+      break;
+    case OP_MAX:
+      if(dat_l>temp[tid]) temp[tid] = dat_l;
+      break;
+    }
+  }
+
+  for (d>>=1; d>warpSize; d>>=1) {
+    __syncthreads();
+    if (tid<d) {
+      switch (reduction) {
+      case OP_INC:
+        temp[tid] = temp[tid] + temp[tid+d];
+        break;
+      case OP_MIN:
+        if(temp[tid+d]<temp[tid]) temp[tid] = temp[tid+d];
+        break;
+      case OP_MAX:
+        if(temp[tid+d]>temp[tid]) temp[tid] = temp[tid+d];
+        break;
+      }
+    }
+  }
+
+  __syncthreads();
+
+  if (tid<warpSize)
+    for (; d>0; d>>=1)
+      switch (reduction) {
+      case OP_INC:
+        temp[tid] = temp[tid] + temp[tid+d];
+        break;
+      case OP_MIN:
+        if(temp[tid+d]<temp[tid]) temp[tid] = temp[tid+d];
+        break;
+      case OP_MAX:
+        if(temp[tid+d]>temp[tid]) temp[tid] = temp[tid+d];
+        break;
+      }
+
+  if (tid==0) {
+    do {} while(atomicCAS(&OP_reduct_lock,0,1));  // set lock
+
+    switch (reduction) {
+    case OP_INC:
+      *dat_g = *dat_g + temp[0];
+      break;
+    case OP_MIN:
+      if(temp[0]<*dat_g) *dat_g = temp[0];
+      break;
+    case OP_MAX:
+      if(temp[0]>*dat_g) *dat_g = temp[0];
+      break;
+    }
+
+    __threadfence();                // ensure *dat_g update complete
+    OP_reduct_lock = 0;             // free lock
+  }
+
+  __syncthreads();  // important to finish one reduction before the next
+}
+
+
+template < op_access reduction >
+__inline__ __device__ void op_reduction(volatile double *dat_g, double dat_l)
+{
+  int tid = threadIdx.x;
+  int d   = blockDim.x>>1; 
+  extern __shared__ double temp[];
+
+  if (tid>=d) temp[tid-d] = dat_l;
+  __syncthreads();
+
+  if (tid<d) {
+    switch (reduction) {
+    case OP_INC:
+      temp[tid] = temp[tid] + dat_l;
+      break;
+    case OP_MIN:
+      if(dat_l<temp[tid]) temp[tid] = dat_l;
+      break;
+    case OP_MAX:
+      if(dat_l>temp[tid]) temp[tid] = dat_l;
+      break;
+    }
+  }
+
+  for (d>>=1; d>warpSize; d>>=1) {
+    __syncthreads();
+    if (tid<d) {
+      switch (reduction) {
+      case OP_INC:
+        temp[tid] = temp[tid] + temp[tid+d];
+        break;
+      case OP_MIN:
+        if(temp[tid+d]<temp[tid]) temp[tid] = temp[tid+d];
+        break;
+      case OP_MAX:
+        if(temp[tid+d]>temp[tid]) temp[tid] = temp[tid+d];
+        break;
+      }
+    }
+  }
+
+  __syncthreads();
+
+  if (tid<warpSize)
+    for (; d>0; d>>=1)
+      switch (reduction) {
+      case OP_INC:
+        temp[tid] = temp[tid] + temp[tid+d];
+        break;
+      case OP_MIN:
+        if(temp[tid+d]<temp[tid]) temp[tid] = temp[tid+d];
+        break;
+      case OP_MAX:
+        if(temp[tid+d]>temp[tid]) temp[tid] = temp[tid+d];
+        break;
+      }
+
+  if (tid==0) {
+    do {} while(atomicCAS(&OP_reduct_lock,0,1));  // set lock
+
+    switch (reduction) {
+    case OP_INC:
+      *dat_g = *dat_g + temp[0];
+      break;
+    case OP_MIN:
+      if(temp[0]<*dat_g) *dat_g = temp[0];
+      break;
+    case OP_MAX:
+      if(temp[0]>*dat_g) *dat_g = temp[0];
+      break;
+    }
+
+    __threadfence();                // ensure *dat_g update complete
+    OP_reduct_lock = 0;             // free lock
+  }
+
+  __syncthreads();  // important to finish one reduction before the next
+}
+
+
+template < op_access reduction, class T >
+__inline__ __device__ void op_reduction(volatile T *dat_g, T dat_l)
+{
+  int tid = threadIdx.x;
+  int d   = blockDim.x>>1; 
+  extern __shared__ T temp[];
+
+  if (tid>=d) temp[tid-d] = dat_l;
+  __syncthreads();
+
+  if (tid<d) {
+    switch (reduction) {
+    case OP_INC:
+      temp[tid] = temp[tid] + dat_l;
+      break;
+    case OP_MIN:
+      if(dat_l<temp[tid]) temp[tid] = dat_l;
+      break;
+    case OP_MAX:
+      if(dat_l>temp[tid]) temp[tid] = dat_l;
+      break;
+    }
+  }
+
+  for (d>>=1; d>warpSize; d>>=1) {
+    __syncthreads();
+    if (tid<d) {
+      switch (reduction) {
+      case OP_INC:
+        temp[tid] = temp[tid] + temp[tid+d];
+        break;
+      case OP_MIN:
+        if(temp[tid+d]<temp[tid]) temp[tid] = temp[tid+d];
+        break;
+      case OP_MAX:
+        if(temp[tid+d]>temp[tid]) temp[tid] = temp[tid+d];
+        break;
+      }
+    }
+  }
+
+  __syncthreads();
+
+  if (tid<warpSize)
+    for (; d>0; d>>=1)
+      switch (reduction) {
+      case OP_INC:
+        temp[tid] = temp[tid] + temp[tid+d];
+        break;
+      case OP_MIN:
+        if(temp[tid+d]<temp[tid]) temp[tid] = temp[tid+d];
+        break;
+      case OP_MAX:
+        if(temp[tid+d]>temp[tid]) temp[tid] = temp[tid+d];
+        break;
+      }
+
+  if (tid==0) {
+    do {} while(atomicCAS(&OP_reduct_lock,0,1));  // set lock
+
+    switch (reduction) {
+    case OP_INC:
+      *dat_g = *dat_g + temp[0];
+      break;
+    case OP_MIN:
+      if(temp[0]<*dat_g) *dat_g = temp[0];
+      break;
+    case OP_MAX:
+      if(temp[0]>*dat_g) *dat_g = temp[0];
+      break;
+    }
+
+    __threadfence();                // ensure *dat_g update complete
+    OP_reduct_lock = 0;             // free lock
+  }
+
+  __syncthreads();  // important to finish one reduction before the next
+}
+
+#endif
+
+//
+// little utility to test for matching types
+//
+
+inline int type_match(char const *typ1, char const *typ2){
+  return (strcmp(typ1,typ2)==0);
+}
+
+
+//
+// declaration of plan check routine
+//
+
+void OP_plan_check(op_plan, int, int *);
+
+
+//
 // find existing execution plan, or construct a new one
 //
 
 extern op_plan * plan(char const * name, op_set set, int nargs, op_dat *args, int *idxs,
-      op_ptr *ptrs, int *dims, op_datatype *typs, op_access *accs, int ninds, int *inds){
+      op_ptr *ptrs, int *dims, char const **typs, op_access *accs, int ninds, int *inds){
 
   // first look for an existing execution plan
 
@@ -287,7 +516,7 @@ extern op_plan * plan(char const * name, op_set set, int nargs, op_dat *args, in
                       && (idxs[m]       == OP_plans[ip].idxs[m])
                       && (ptrs[m].index == OP_plans[ip].ptr_idxs[m])
                       && (dims[m]       == OP_plans[ip].dims[m])
-                      && (typs[m]       == OP_plans[ip].typs[m])
+            && type_match(typs[m],         OP_plans[ip].typs[m])
                       && (accs[m]       == OP_plans[ip].accs[m]);
       }
     }
@@ -328,7 +557,7 @@ extern op_plan * plan(char const * name, op_set set, int nargs, op_dat *args, in
           exit(1);
         }
       }
-      if (args[m].type != typs[m]) {
+      if (!type_match(args[m].type,typs[m])) {
         printf("error: wrong datatype for arg %d in kernel \"%s\"\n",m,name);
         exit(1);
       }
@@ -353,7 +582,7 @@ extern op_plan * plan(char const * name, op_set set, int nargs, op_dat *args, in
   OP_plans[ip].idxs      = (int *)malloc(nargs*sizeof(int));
   OP_plans[ip].ptr_idxs  = (int *)malloc(nargs*sizeof(int));
   OP_plans[ip].dims      = (int *)malloc(nargs*sizeof(int));
-  OP_plans[ip].typs      = (op_datatype *)malloc(nargs*sizeof(op_datatype));
+  OP_plans[ip].typs      = (char const **)malloc(nargs*sizeof(char *));
   OP_plans[ip].accs      = (op_access *)malloc(nargs*sizeof(op_access));
 
   OP_plans[ip].nthrcol   = (int *)malloc(nblocks*sizeof(int));
@@ -393,7 +622,6 @@ extern op_plan * plan(char const * name, op_set set, int nargs, op_dat *args, in
     
   OP_nplans++;
 
-
   // allocate working arrays
 
   uint **work;
@@ -406,16 +634,8 @@ extern op_plan * plan(char const * name, op_set set, int nargs, op_dat *args, in
     work[m] = (uint *)malloc(ptrs[m2].to.size*sizeof(uint));
   }
 
-  //  uint **work;
-  //  work = (uint **)malloc(nargs*sizeof(uint *));
-  //
-  //  for (int m=0; m<nargs; m++) {
-  //    work[m] = (uint *)malloc(ptrs[m].to.size*sizeof(uint));
-  //  }
-
   int *work2;
   work2 = (int *)malloc(nargs*bsize*sizeof(int));  // max possibly needed
-
 
   // process set one block at a time
 
@@ -438,7 +658,7 @@ extern op_plan * plan(char const * name, op_set set, int nargs, op_dat *args, in
       for (int m2=0; m2<nargs; m2++) {
         if (inds[m2]==m) {
           for (int e=b*bsize; e<b*bsize+bs; e++)
-            work2[ne++] = ptrs[m2].ptr[e];
+            work2[ne++] = ptrs[m2].ptr[idxs[m2]+e*ptrs[m2].dim];
 	}
       }
 
@@ -455,11 +675,13 @@ extern op_plan * plan(char const * name, op_set set, int nargs, op_dat *args, in
       }
       ne = e;  // number of distinct elements
 
+      /*
       if (OP_DIAGS > 5) {
         printf(" indirection set %d: ",m);
         for (int e=0; e<ne; e++) printf(" %d",work2[e]);
         printf(" \n");
       }
+      */
 
       // store mapping and renumbered pointers in execution plan
 
@@ -471,7 +693,7 @@ extern op_plan * plan(char const * name, op_set set, int nargs, op_dat *args, in
       for (int m2=0; m2<nargs; m2++) {
         if (inds[m2]==m) {
           for (int e=b*bsize; e<b*bsize+bs; e++)
-            OP_plans[ip].ptrs[m2][e] = work[m][ptrs[m2].ptr[e]];
+            OP_plans[ip].ptrs[m2][e] = work[m][ptrs[m2].ptr[idxs[m2]+e*ptrs[m2].dim]];
 	}
       }
 
@@ -484,8 +706,6 @@ extern op_plan * plan(char const * name, op_set set, int nargs, op_dat *args, in
                                      + OP_plans[ip].ind_sizes[m][b-1];
         OP_plans[ip].ind_sizes[m][b] = nindirect[m] - OP_plans[ip].ind_offs[m][b];
       }
-
-      // printf("b, m, nindirect[m] = %d %d %d\n",b,m,nindirect[m]);
     }
 
 
@@ -521,7 +741,7 @@ extern op_plan * plan(char const * name, op_set set, int nargs, op_dat *args, in
       for (int m=0; m<nargs; m++) {
         if (inds[m]>=0)
           for (int e=b*bsize; e<b*bsize+bs; e++)
-            work[inds[m]][ptrs[m].ptr[e]] = 0;  // zero out relevant bits of color arrays
+            work[inds[m]][ptrs[m].ptr[idxs[m]+e*ptrs[m].dim]] = 0;  // zero out color array
       }
 
       for (int e=b*bsize; e<b*bsize+bs; e++) {
@@ -529,10 +749,9 @@ extern op_plan * plan(char const * name, op_set set, int nargs, op_dat *args, in
           int mask = 0;
           for (int m=0; m<nargs; m++)
             if (inds[m]>=0 && accs[m]==OP_INC)
-              mask |= work[inds[m]][ptrs[m].ptr[e]];    // set bits of mask
+              mask |= work[inds[m]][ptrs[m].ptr[idxs[m]+e*ptrs[m].dim]]; // set bits of mask
 
           int color = ffs(~mask) - 1;   // find first bit not set
-          // printf("block, thread, color = %d, %d, %d \n",b,e,color);
           if (color==-1) {              // run out of colors on this pass
             repeat = 1;
           }
@@ -543,7 +762,7 @@ extern op_plan * plan(char const * name, op_set set, int nargs, op_dat *args, in
 
             for (int m=0; m<nargs; m++)
               if (inds[m]>=0 && accs[m]==OP_INC)
-                work[inds[m]][ptrs[m].ptr[e]] |= mask;  // set bit of color array
+                work[inds[m]][ptrs[m].ptr[idxs[m]+e*ptrs[m].dim]] |= mask; // set color bit
           }
         }
       }
@@ -584,11 +803,10 @@ extern op_plan * plan(char const * name, op_set set, int nargs, op_dat *args, in
         for (int m=0; m<nargs; m++) {
           if (inds[m]>=0) 
             for (int e=b*bsize; e<b*bsize+bs; e++)
-              mask |= work[inds[m]][ptrs[m].ptr[e]];    // set bits of mask
+              mask |= work[inds[m]][ptrs[m].ptr[idxs[m]+e*ptrs[m].dim]]; // set bits of mask
         }
 
         int color = ffs(~mask) - 1;   // find first bit not set
-        // printf("block, color = %d, %d \n",b,color);
         if (color==-1) {              // run out of colors on this pass
           repeat = 1;
         }
@@ -600,7 +818,7 @@ extern op_plan * plan(char const * name, op_set set, int nargs, op_dat *args, in
           for (int m=0; m<nargs; m++) {
             if (inds[m]>=0)
               for (int e=b*bsize; e<b*bsize+bs; e++)
-                work[inds[m]][ptrs[m].ptr[e]] |= mask;
+                work[inds[m]][ptrs[m].ptr[idxs[m]+e*ptrs[m].dim]] |= mask;
           }
         }
       }
@@ -615,10 +833,8 @@ extern op_plan * plan(char const * name, op_set set, int nargs, op_dat *args, in
 
   OP_plans[ip].ncolors = ncolors;
 
-  for (int b=0; b<nblocks; b++) {
-    // printf("b, blk_col = %d, %d\n",b,blk_col[b]);
+  for (int b=0; b<nblocks; b++)
     OP_plans[ip].ncolblk[blk_col[b]]++;  // number of blocks of each color
-  }
 
   for (int c=1; c<ncolors; c++)
     OP_plans[ip].ncolblk[c] += OP_plans[ip].ncolblk[c-1]; // cumsum
@@ -638,19 +854,10 @@ extern op_plan * plan(char const * name, op_set set, int nargs, op_dat *args, in
   for (int c=ncolors-1; c>0; c--)
     OP_plans[ip].ncolblk[c] -= OP_plans[ip].ncolblk[c-1]; // undo cumsum
 
-  /*
-  printf("ncolblk = ");
-  for (int c=0; c<ncolors; c++)
-    printf("%d ",OP_plans[ip].ncolblk[c]);
-  printf("\n");
-  */
-
   // reorder blocks by color?
 
 
   // work out shared memory requirements
-
-  // printf(" working out shared memory needs\n");
 
   OP_plans[ip].nshared = 0;
 
@@ -660,18 +867,18 @@ extern op_plan * plan(char const * name, op_set set, int nargs, op_dat *args, in
       int m2 = 0;
       while(inds[m2]!=m) m2++;
 
-      int nelems = OP_plans[ip].ind_sizes[m][b]*dims[m2];
-      if (typs[m2]==OP_FLOAT)
-        nbytes += nelems*sizeof(float);
-      else if (typs[m2]==OP_DOUBLE)
-        nbytes += nelems*sizeof(double);
-      else if (typs[m2]==OP_INT)
-        nbytes += nelems*sizeof(int);
+      nbytes += ROUND_UP(OP_plans[ip].ind_sizes[m][b]*args[m2].size);
     }
     OP_plans[ip].nshared = MAX(OP_plans[ip].nshared,nbytes);
   }
 
   // printf(" shared memory = %d bytes \n",OP_plans[ip].nshared);
+
+
+  // validate plan info
+
+  OP_plan_check(OP_plans[ip],ninds,inds);
+
 
   // move plan arrays to GPU
 
@@ -703,4 +910,160 @@ extern op_plan * plan(char const * name, op_set set, int nargs, op_dat *args, in
   // return pointer to plan
 
   return &(OP_plans[ip]);
+}
+
+
+void OP_plan_check(op_plan OP_plan, int ninds, int *inds) {
+
+  int err, ntot;
+
+  op_set set = *OP_set_list[OP_plan.set_index];
+
+  int nblock = 0;
+  for (int col=0; col<OP_plan.ncolors; col++) nblock += OP_plan.ncolblk[col];
+
+  //
+  // check total size
+  //
+
+  int nelem = 0;
+  for (int n=0; n<nblock; n++) nelem += OP_plan.nelems[n];
+
+  if (nelem != set.size) {
+    printf(" *** OP_plan_check: nelems error \n");
+  }
+  else {
+    printf(" *** OP_plan_check: nelems   OK \n");
+  }
+
+  //
+  // check offset and nelems are consistent
+  //
+
+  err  = 0;
+  ntot = 0;
+
+  for (int n=0; n<nblock; n++) {
+    err  += (OP_plan.offset[n] != ntot);
+    ntot +=  OP_plan.nelems[n];
+  }
+
+  if (err != 0) {
+    printf(" *** OP_plan_check: offset error \n");
+  }
+  else {
+    printf(" *** OP_plan_check: offset   OK \n");
+  }
+
+  //
+  // check blkmap permutation
+  //
+
+  int *blkmap = (int *) malloc(nblock*sizeof(int));
+  for (int n=0; n<nblock; n++) blkmap[n] = OP_plan.blkmap[n];
+  qsort(blkmap,nblock,sizeof(int),comp);
+
+  err = 0;
+  for (int n=0; n<nblock; n++) err += (blkmap[n] != n);
+
+  free(blkmap);
+
+  if (err != 0) {
+    printf(" *** OP_plan_check: blkmap error \n");
+  }
+  else {
+    printf(" *** OP_plan_check: blkmap   OK \n");
+  }
+
+  //
+  // check ind_offs and ind_sizes are consistent
+  //
+
+  err  = 0;
+
+  for (int i = 0; i<ninds; i++) {
+    ntot = 0;
+
+    for (int n=0; n<nblock; n++) {
+      err  += (OP_plan.ind_offs[i][n] != ntot);
+      ntot +=  OP_plan.ind_sizes[i][n];
+    }
+  }
+
+  if (err != 0) {
+    printf(" *** OP_plan_check: ind_offs error \n");
+  }
+  else {
+    printf(" *** OP_plan_check: ind_offs OK \n");
+  }
+
+  //
+  // check ind_ptrs correctly ordered within each block
+  // and indices within range
+  //
+
+  err = 0;
+
+  for (int m = 0; m<ninds; m++) {
+    int m2 = 0;
+    while(inds[m2]!=m) m2++;
+    int set_size = (*OP_ptr_list[OP_plan.ptr_idxs[m2]]).to.size;
+
+    ntot = 0;
+
+    for (int n=0; n<nblock; n++) {
+      int last = -1;
+      for (int e=ntot; e<ntot+OP_plan.ind_sizes[m][n]; e++) {
+        err  += (OP_plan.ind_ptrs[m][e] <= last);
+        last  = OP_plan.ind_ptrs[m][e]; 
+      }
+      err  += (last >= set_size);
+      ntot +=  OP_plan.ind_sizes[m][n];
+    }
+  }
+
+  if (err != 0) {
+    printf(" *** OP_plan_check: ind_ptrs error \n");
+  }
+  else {
+    printf(" *** OP_plan_check: ind_ptrs OK \n");
+  }
+
+  //
+  // check ptrs (most likely source of errors)
+  //
+
+  err = 0;
+
+  for (int m=0; m<OP_plan.nargs; m++) {
+    if (OP_plan.ptr_idxs[m]>=0) {
+      op_ptr ptr = *OP_ptr_list[OP_plan.ptr_idxs[m]];
+      int    m2  = inds[m];
+
+      ntot = 0;
+      for (int n=0; n<nblock; n++) {
+        for (int e=ntot; e<ntot+OP_plan.nelems[n]; e++) {
+          int p_local  = OP_plan.ptrs[m][e];
+          int p_global = OP_plan.ind_ptrs[m2][p_local+OP_plan.ind_offs[m2][n]]; 
+
+          err += (p_global != ptr.ptr[OP_plan.idxs[m]+e*ptr.dim]);
+        }
+        ntot +=  OP_plan.nelems[n];
+      }
+    }
+  }
+
+  if (err != 0) {
+    printf(" *** OP_plan_check: ptrs error \n");
+  }
+  else {
+    printf(" *** OP_plan_check: ptrs     OK \n");
+  }
+
+
+  //
+  // check thread and block coloring
+  //
+
+  return;
 }

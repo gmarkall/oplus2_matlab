@@ -4,13 +4,12 @@
 
 // user function                                                                  
                                                                                   
-__device__                                                                        
 #include "update.h"                                                               
                                                                                   
                                                                                   
-// CUDA kernel function                                                           
+// x86 kernel function                                                            
                                                                                   
-__global__ void op_cuda_update(                                                   
+void op_x86_update(                                                               
   float *arg0,                                                                    
   float *arg1,                                                                    
   float *arg2,                                                                    
@@ -25,8 +24,7 @@ __global__ void op_cuda_update(
                                                                                   
   // process set elements                                                         
                                                                                   
-  for (int n=threadIdx.x+blockIdx.x*blockDim.x;                                   
-       n<set_size; n+=blockDim.x*gridDim.x) {                                     
+  for (int n=0; n<set_size; n++) {                                                
                                                                                   
       // user-supplied kernel call                                                
                                                                                   
@@ -39,8 +37,8 @@ __global__ void op_cuda_update(
                                                                                   
   // global reductions                                                            
                                                                                   
-  for(int d=0; d<1; d++) op_reduction<OP_INC>(&arg3[d],arg3_l[d]);                
-  for(int d=0; d<1; d++) op_reduction<OP_MAX>(&arg4[d],arg4_l[d]);                
+  for(int d=0; d<1; d++) arg3[d] += arg3_l[d];                                    
+  for(int d=0; d<1; d++) arg4[d]  = MAX(arg4[d],arg4_l[d]);                       
 }                                                                                 
                                                                                   
                                                                                   
@@ -60,47 +58,13 @@ void op_par_loop_update(char const *name, op_set set,
     printf(" kernel routine w/o indirection:  update \n");                        
   }                                                                               
                                                                                   
-  // transfer global reduction data to GPU                                        
-                                                                                  
-  int reduct_bytes = 0;                                                           
-  int reduct_size  = 0;                                                           
-  reduct_bytes += ROUND_UP(1*sizeof(float));                                      
-  reduct_size   = MAX(reduct_size,sizeof(float));                                 
-  reduct_bytes += ROUND_UP(1*sizeof(float));                                      
-  reduct_size   = MAX(reduct_size,sizeof(float));                                 
-                                                                                  
-  reallocReductArrays(reduct_bytes);                                              
-                                                                                  
-  reduct_bytes = 0;                                                               
-  arg3.dat   = OP_reduct_h + reduct_bytes;                                        
-  arg3.dat_d = OP_reduct_d + reduct_bytes;                                        
-  for (int d=0; d<1; d++) ((float *)arg3.dat)[d] = arg3h[d];                      
-  reduct_bytes += ROUND_UP(1*sizeof(float));                                      
-  arg4.dat   = OP_reduct_h + reduct_bytes;                                        
-  arg4.dat_d = OP_reduct_d + reduct_bytes;                                        
-  for (int d=0; d<1; d++) ((float *)arg4.dat)[d] = arg4h[d];                      
-  reduct_bytes += ROUND_UP(1*sizeof(float));                                      
-                                                                                  
-  mvReductArraysToDevice(reduct_bytes);                                           
-                                                                                  
   // execute plan                                                                 
                                                                                   
-  int nshared = reduct_size*64/2;                                                 
-                                                                                  
-  op_cuda_update<<<100,64,nshared>>>( (float *) arg0.dat_d,                       
-                                      (float *) arg1.dat_d,                       
-                                      (float *) arg2.dat_d,                       
-                                      (float *) arg3.dat_d,                       
-                                      (float *) arg4.dat_d,                       
-                                      set.size );                                 
-                                                                                  
-  cutilCheckMsg("op_cuda_update execution failed\n");                             
-                                                                                  
-  // transfer global reduction data back to CPU                                   
-                                                                                  
-  mvReductArraysToHost(reduct_bytes);                                             
-                                                                                  
-  for (int d=0; d<1; d++) arg3h[d] = ((float *)arg3.dat)[d];                      
-  for (int d=0; d<1; d++) arg4h[d] = ((float *)arg4.dat)[d];                      
+  op_x86_update( (float *) arg0.dat,                                              
+                 (float *) arg1.dat,                                              
+                 (float *) arg2.dat,                                              
+                 (float *) arg3.dat,                                              
+                 (float *) arg4.dat,                                              
+                 set.size );                                                      
 }                                                                                 
                                                                                   

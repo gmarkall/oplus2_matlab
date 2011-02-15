@@ -68,7 +68,6 @@ void op_decl_set(int size, op_set &set, char const *name){
   OP_set_list[OP_set_index++] = &set;
 }
 
-
 void op_decl_ptr(op_set from, op_set to, int dim, int *ptr, op_ptr &pointer, char const *name){
   pointer.from = from;
   pointer.to   = to;
@@ -80,66 +79,22 @@ void op_decl_ptr(op_set from, op_set to, int dim, int *ptr, op_ptr &pointer, cha
   OP_ptr_list[OP_ptr_index++] = &pointer;
 }
 
-
-template <class T>
-void op_decl_dat_T(op_set set, int dim, op_datatype type, T *dat, op_dat &data, char const *name){
-
-  if (type_error(dat,type)) {
-    printf("incorrect type specified for dataset \"%s\" \n",name);  exit(1);
-  }
-
+void op_decl_dat_char(op_set set, int dim, char const *type, int size, char *dat, op_dat &data, char const *name){
   data.set   = set;
   data.dim   = dim;
-  data.dat   = (char *) dat;
+  data.dat   = dat;
   data.name  = name;
   data.type  = type;
-  data.size  = dim*sizeof(T);
+  data.size  = dim*size;
   data.index = OP_dat_index;
   OP_dat_list[OP_dat_index++] = &data;
 }
 
-void op_decl_dat(op_set set, int dim, op_datatype type, double *dat, op_dat &data, char const *name){
-  op_decl_dat_T(set, dim, type, dat, data, name);
+void op_decl_const_char(int dim, char const *type, int size, char *dat, char const *name){
 }
-
-
-void op_decl_dat(op_set set, int dim, op_datatype type, float *dat, op_dat &data, char const *name){
-  op_decl_dat_T(set, dim, type, dat, data, name);
-}
-
-
-void op_decl_dat(op_set set, int dim, op_datatype type, int *dat, op_dat &data, char const *name){
-  op_decl_dat_T(set, dim, type, dat, data, name);
-}
-
-
-template <class T>
-void op_decl_const_T(int dim, op_datatype type, T *dat, char const *name){
-  if (type_error(dat,type)) {
-    printf("incorrect type specified for constant \"%s\" \n",name);  exit(1);
-  }
-}
-
-void op_decl_const(int dim, op_datatype type, double *dat, char const *name){
-     op_decl_const_T(dim, type, dat, name);
-}
-
-void op_decl_const(int dim, op_datatype type, float *dat, char const *name){
-     op_decl_const_T(dim, type, dat, name);
-}
-
-void op_decl_const(int dim, op_datatype type, int *dat, char const *name){
-     op_decl_const_T(dim, type, dat, name);
-}
-
 
 void op_fetch_data(op_dat dat){
 }
-
-
-//
-// diagnostic output routine
-//
 
 void op_diagnostic_output(){
   if (OP_DIAGS > 1) {
@@ -170,4 +125,5 @@ void op_diagnostic_output(){
   }
 }
 
-
+void op_exit(){
+}
