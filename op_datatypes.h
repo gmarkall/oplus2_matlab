@@ -41,16 +41,17 @@
 #ifndef OP_DATATYPES
 #define OP_DATATYPES
 
-enum op_datatype { OP_FLOAT, OP_DOUBLE, OP_INT };
-enum op_access   { OP_READ, OP_WRITE, OP_RW, OP_INC };
+enum op_access   { OP_READ, OP_WRITE, OP_RW, OP_INC, OP_MIN, OP_MAX };
+enum op_datatype { OP_FLOAT, OP_DOUBLE, OP_INT, OP_BOOL };
 
 //
-// run-time type-checking routine
+// run-time type-checking routines
 //
 
-int type_error(const double *, op_datatype);
-int type_error(const float  *, op_datatype);
-int type_error(const int    *, op_datatype);
+inline int type_error(const double *,op_datatype type){return (type != OP_DOUBLE);}
+inline int type_error(const float  *,op_datatype type){return (type != OP_FLOAT);}
+inline int type_error(const int    *,op_datatype type){return (type != OP_INT);}
+inline int type_error(const bool   *,op_datatype type){return (type != OP_BOOL);}
 
 //
 // structures
@@ -83,13 +84,13 @@ typedef struct {
 } op_dat;
 
 // null set
-#define OP_NULL (op_set) {0,0,"null"}
+#define OP_NULL_SET (op_set) {0,0,"null"}
 
 // identity mapping
-#define OP_ID (op_ptr) {OP_NULL,OP_NULL,0,-1,NULL,"id"}
+#define OP_ID (op_ptr) {OP_NULL_SET,OP_NULL_SET,0,-1,NULL,"id"}
 
 // global identifier
-#define OP_GBL (op_ptr) {OP_NULL,OP_NULL,0,-2,NULL,"gbl"}
+#define OP_GBL (op_ptr) {OP_NULL_SET,OP_NULL_SET,0,-2,NULL,"gbl"}
 
 typedef struct {
   // input arguments

@@ -36,7 +36,9 @@
 #include <string.h>                                                         
 #include <math.h>                                                           
 #include <cutil_inline.h>
+#include <math_constants.h>
 #include "op_datatypes.h"
+#include "op_atomics.h"
 
 
 //
@@ -53,25 +55,10 @@ op_ptr  * OP_ptr_list[10];
 op_dat  * OP_dat_list[10];
 op_plan   OP_plans[100];
 
-int   OP_consts_bytes=0;
-char *OP_consts_h, *OP_consts_d;
+// arrays for global constants and reductions
 
-
-//
-// run-time type-checking routine
-//
-
-int type_error(float *, op_datatype type) {
-  return (type != OP_FLOAT);
-}
-
-int type_error(double *, op_datatype type) {
-  return (type != OP_DOUBLE);
-}
-
-int type_error(int *, op_datatype type) {
-  return (type != OP_INT);
-}
+int   OP_consts_bytes=0,          OP_reduct_bytes=0;
+char *OP_consts_h, *OP_consts_d, *OP_reduct_h, *OP_reduct_d;
 
 
 //
@@ -236,7 +223,7 @@ extern void op_fetch_data(op_dat data) {
 
 
 //
-// utility routine to resize constant arrays, if necessary
+// utility routines to resize constant/reduct arrays, if necessary
 //
 
 void reallocConstArrays(int consts_bytes) {
@@ -249,13 +236,33 @@ void reallocConstArrays(int consts_bytes) {
   cutilSafeCall(cudaMalloc((void **)&OP_consts_d, OP_consts_bytes));
 }
 
+void reallocReductArrays(int reduct_bytes) {
+  if (OP_reduct_bytes>0) {
+    free(OP_reduct_h);
+    cutilSafeCall(cudaFree(OP_reduct_d));
+  }
+  OP_reduct_bytes = 4*reduct_bytes;
+  OP_reduct_h = (char *) malloc(OP_reduct_bytes);
+  cutilSafeCall(cudaMalloc((void **)&OP_reduct_d, OP_reduct_bytes));
+}
+
 //
-// utility routine to move constant arrays, if necessary
+// utility routine to move constant/reduct arrays
 //
 
 void mvConstArraysToDevice(int consts_bytes) {
   cutilSafeCall(cudaMemcpy(OP_consts_d, OP_consts_h, consts_bytes,
                 cudaMemcpyHostToDevice));
+}
+
+void mvReductArraysToDevice(int reduct_bytes) {
+  cutilSafeCall(cudaMemcpy(OP_reduct_d, OP_reduct_h, reduct_bytes,
+                cudaMemcpyHostToDevice));
+}
+
+void mvReductArraysToHost(int reduct_bytes) {
+  cutilSafeCall(cudaMemcpy(OP_reduct_h, OP_reduct_d, reduct_bytes,
+                cudaMemcpyDeviceToHost));
 }
 
 

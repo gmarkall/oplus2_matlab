@@ -258,7 +258,7 @@ All datatypes of the form {\tt op\_***} are defined in the header file.}
 
 \item[set]           set
 \item[dim]           dimension of dataset (number of items per set element)
-\item[type]          datatype ({\tt OP\_DOUBLE, OP\_FLOAT, OP\_INT})
+\item[type]          datatype ({\tt OP\_DOUBLE, OP\_FLOAT, OP\_INT, OP\_BOOL})
 \item[idat]          input data of type {\tt T}  (checked for consistency with {\tt type} at run-time)
 \item[dat]           output OP dataset ID
 \item[name]          a name used for output diagnostics
@@ -270,7 +270,7 @@ Note: in sequential version, it is the user's responsibility to define the appro
 variable.}
 
 \item[dim]           dimension of data (i.e.~array size)
-\item[type]          datatype ({\tt OP\_DOUBLE, OP\_FLOAT, OP\_INT})
+\item[type]          datatype ({\tt OP\_DOUBLE, OP\_FLOAT, OP\_INT, OP\_BOOL})
 \item[idat]          input data of type {\tt T}  (checked for consistency with {\tt type} at run-time)
 \item[name]          global name to be used in user's kernel functions;\\
                      a scalar variable if {\tt dim=1}, otherwise an array of size {\tt dim}
@@ -299,27 +299,31 @@ variable.}
 \newpage
 \section{Parallel execution routine}
 
-The parallel loop syntax when the user's kernel function has 3 arguments is:
+The parallel loop syntax when the user's kernel function has 3 arguments,
+with the third being a local constant or global reduction array, is:
 
 \begin{routine} {op\_par\_loop\_3(void (*kernel)(T0 *, T1 *, T2 *), char * name, op\_set set,\\
 \hspace*{0.13in}    op\_dat arg0, int idx0, op\_ptr ptr0, int dim0, op\_datatype typ0, op\_access acc0,\\
 \hspace*{0.13in}    op\_dat arg1, int idx1, op\_ptr ptr1, int dim1, op\_datatype typ1, op\_access acc1,\\
-\hspace*{0.13in}    op\_dat arg2, int idx2, op\_ptr ptr2, int dim2, op\_datatype typ2, op\_access acc2)}{}
+\hspace*{0.13in}    T2     *arg2, int idx2, op\_ptr ptr2, int dim2, op\_datatype typ2, op\_access acc2)}{}
 
 \item[kernel]     user's kernel function with 3 arguments of arbitrary type\\
                   (this is only used for the single-threaded CPU build)
 \item[name]       name of kernel function, used for output diagnostics
 \item[set]        OP set ID, giving set over which the parallel computation is performed
-\item[arg]        OP dataset ID
+\item[arg]        OP dataset ID, or pointer to constant or global reduction array
 \item[idx]        index of pointer to be used (-1 $\equiv$ no pointer indirection)
-\item[ptr]        OP pointer ID ({\tt OP\_ID} for identity mapping, i.e.~no pointer indirection)
+\item[ptr]        OP pointer ID ({\tt OP\_ID} for identity mapping, i.e.~no pointer indirection,
+                  {\tt OP\_GBL} for constant or global reduction array)
 \item[dim]        dimension of dataset (redundant info, checked at run-time for consistency)
 \item[typ]        datatype of dataset (redundant info, checked at run-time for consistency)
 \item[acc]        access type:\\
                   {\tt OP\_READ}: read-only\\ 
                   {\tt OP\_WRITE}: write-only, but without potential data conflict\\ 
-                  {\tt OP\_INC}: increment\\ 
-                  {\tt OP\_RW}:  read and write, but without potential data conflict
+                  {\tt OP\_RW}:  read and write, but without potential data conflict\\
+                  {\tt OP\_INC}: increment, or global reduction to compute a sum\\ 
+                  {\tt OP\_MAX}: global reduction to compute a maximum \\ 
+                  {\tt OP\_MIN}: global reduction to compute a minimum \\ 
 \end{routine}
 
 {\tt kernel} is a function with 3 arguments of arbitrary type which performs
@@ -343,8 +347,10 @@ through pointer indirection reference the same elements of the dataset.
 
 Different numbers of arguments are handled similarly by routines with names
 of the form {\tt op\_par\_loop\_n} where {\tt n} is the number of arguments.
+Each argument can be either a dataset or or constant or global reduction array,
+following the syntax shown above.
 
-\newpage
+
 \section{Preprocesor}
 
 The prototype preprocessor has been written in MATLAB.  It is run by the command
@@ -357,23 +363,23 @@ modified main program {\tt main\_op.cpp}, and a new CUDA file {\tt main\_kernels
 which includes one or more files of the form {\tt xxx\_kernel.cu} containing 
 the CUDA implementations of the user's kernel functions.
 
-The current preprocessor will not work if the user's application is split over 
-several files.  It will also not work if the same user kernel is used in more 
-than one parallel loop, or if global constant data is set/updated in more than 
-one place within the code.
-Both of these deficiencies will be addressed in the future.  Neither should be 
-particularly troublesome, but it requires some feedback from users about how
-they would prefer the build process to work when there are multiple source files.
+If the user's application is split over several files it is run by a command such as
+
+{\tt op2('main','sub1','sub2','sub3')}
+
+\noindent
+where {\tt sub1.cpp, sub2.cpp, sub3.cpp} are the additional input files which will 
+lead to the generation of output files {\tt sub1\_op.cpp, sub2\_op.cpp, sub3\_op.cpp} 
+in addition to {\tt main\_op.cpp, main\_kernels.cu} and the individual kernel files.
+
+The preprocessor cannot currently handle cases in which the same user kernel is 
+used in more than one parallel loop, or when global constant data is set/updated 
+in more than one place within the code.  This will be addressed in the future.
 
 
 \section{Future changes}
 
-The syntax for {\tt \bf op\_par\_loop} will be expanded to include arguments 
-which are global variables coming from the host process.  The access types for
-these will be {\tt OP\_READ, OP\_INC, OP\_MIN, OP\_MAX}, with the last 3 of these
-implying a global reduction over all elements in the set.
-
-There will also be a new function {\tt \bf op\_partition} which will re-number 
+There will be a new function {\tt \bf op\_partition} which will re-number 
 all of the elements in each set, to maximise the data reuse within each 
 mini-partition.  This is likely to use the same partitioning algorithm which
 will be employed for the higher-level distributed-memory partitioning for the

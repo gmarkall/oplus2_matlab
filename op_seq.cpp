@@ -54,15 +54,6 @@ op_plan   OP_plans[100];
 
 
 //
-// run-time type-checking routine
-//
-
-int type_error(const double *,op_datatype type){return (type != OP_DOUBLE);}
-int type_error(const float  *,op_datatype type){return (type != OP_FLOAT);}
-int type_error(const int    *,op_datatype type){return (type != OP_INT);}
-
-
-//
 // OP functions
 //
 
