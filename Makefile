@@ -4,10 +4,11 @@
 #
 
 tar_file:	all_clean
-		tar cvf op2.tar \
+		tar zcvf op2.tar.gz \
 		    jac1/*.h jac1/*.cpp jac1/*.cu jac1/Makefile \
 		    jac2/*.h jac2/*.cpp jac2/*.cu jac2/Makefile \
 		    airfoil/*.h airfoil/*.cpp airfoil/*.cu airfoil/Makefile \
+		    airfoil/new_grid.dat \
 		    common/*.h common/*.cpp common/*.cu common/*.m \
                     doc/*.tex doc/*.pdf \
                     README Makefile

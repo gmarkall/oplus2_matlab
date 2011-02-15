@@ -50,20 +50,20 @@
 
 #define OP_WARPSIZE 32
 
-int OP_set_index =0,
-    OP_map_index =0,
-    OP_dat_index =0,
-    OP_nplans    =0,
+int OP_set_index =0, OP_set_max =0,
+    OP_map_index =0, OP_map_max =0,
+    OP_dat_index =0, OP_dat_max =0,
+    OP_plan_index=0, OP_plan_max=0,
     OP_diags     =0,
     OP_part_size =0,
     OP_block_size=512,
     OP_cache_line_size=128;
 
-op_set  * OP_set_list[10];
-op_map  * OP_map_list[10];
-op_dat  * OP_dat_list[10];
-op_plan   OP_plans[100];
-op_kernel OP_kernels[100];
+op_set  **OP_set_list;
+op_map  **OP_map_list;
+op_dat  **OP_dat_list;
+op_plan  *OP_plans;
+op_kernel OP_kernels[OP_KERNELS_MAX];
 
 // arrays for global constants and reductions
 
@@ -102,11 +102,19 @@ void op_init(int argc, char **argv, int diags){
   }
 
 #ifndef OP_x86
+  #if CUDART_VERSION < 3020
+    #error : "must be compiled using CUDA 3.2 or later"
+  #endif
+
+  #ifdef CUDA_NO_SM_13_DOUBLE_INTRINSICS
+    #warning : " *** no support for double precision arithmetic *** "
+  #endif
+
   cutilSafeCall(cudaThreadSetCacheConfig(cudaFuncCachePreferShared));
   printf("\n 16/48 L1/shared \n");
 #endif
 
-  for (int n=0; n<100; n++) {
+  for (int n=0; n<OP_KERNELS_MAX; n++) {
     OP_kernels[n].count     = 0;
     OP_kernels[n].transfer  = 0.0f;
     OP_kernels[n].transfer2 = 0.0f;
@@ -114,25 +122,89 @@ void op_init(int argc, char **argv, int diags){
 }
 
 void op_decl_set(int size, op_set &set, char const *name){
-  set.size = size;
-  set.name = name;
 
+  if (size<=0) {
+    printf(" op_decl_set error -- negative/zero size for set: %s\n",name);
+    exit(-1);
+  }
+
+  set.size  = size;
+  set.name  = name;
   set.index = OP_set_index;
+
+  if (OP_set_index==OP_set_max) {
+    OP_set_max += 10;
+    OP_set_list = (op_set **) realloc(OP_set_list,OP_set_max*sizeof(op_set *));
+    if (OP_set_list==NULL) {
+      printf(" op_decl_set error -- error reallocating memory\n");
+      exit(-1);  
+    }
+  }
+
   OP_set_list[OP_set_index++] = &set;
 }
 
 void op_decl_map(op_set from, op_set to, int dim, int *map, op_map &mapping, char const *name){
-  mapping.from = from;
-  mapping.to   = to;
-  mapping.dim  = dim;
-  mapping.map  = map;
-  mapping.name = name;
 
+  if ( (from.index<0) || (from.index>=OP_set_index) ||
+       strcmp((*(OP_set_list[from.index])).name,from.name) ) {
+    printf(" op_decl_map error -- invalid 'from' set for map %s\n",name);
+    exit(-1);
+  }
+
+  if ( (to.index<0) || (to.index>=OP_set_index) ||
+       strcmp((*(OP_set_list[to.index])).name,to.name) ) {
+    printf("op_decl_map error -- invalid 'to' set for map %s\n",name);
+    exit(-1);
+  }
+
+  if (dim<=0) {
+    printf("op_decl_map error -- negative/zero dimension for map %s\n",name);
+    exit(-1);
+  }
+
+  for (int d=0; d<dim; d++) {
+    for (int n=0; n<from.size; n++) {
+      if (map[d+n*dim]<0 || map[d+n*dim]>=to.size) {
+        printf("op_decl_map error -- invalid data for map %s\n",name);
+        printf("element = %d, dimension = %d, map = %d\n",n,d,map[d+n*dim]);
+        exit(-1);
+      }
+    }
+  }
+
+  mapping.from  = from;
+  mapping.to    = to;
+  mapping.dim   = dim;
+  mapping.map   = map;
+  mapping.name  = name;
   mapping.index = OP_map_index;
+
+  if (OP_map_index==OP_map_max) {
+    OP_map_max += 10;
+    OP_map_list = (op_map **) realloc(OP_map_list,OP_map_max*sizeof(op_map *));
+    if (OP_map_list==NULL) {
+      printf(" op_decl_map error -- error reallocating memory\n");
+      exit(-1);  
+    }
+  }
+
   OP_map_list[OP_map_index++] = &mapping;
 }
 
 void op_decl_dat_char(op_set set, int dim, char const *type, int size, char *dat, op_dat &data, char const *name){
+
+  if ( (set.index<0) || (set.index>=OP_set_index) ||
+       strcmp((*(OP_set_list[set.index])).name,set.name) ) {
+    printf("op_decl_dat error -- invalid set for data: %s\n",name);
+    exit(-1);
+  }
+
+  if (dim<=0) {
+    printf("op_decl_dat error -- negative/zero dimension for data: %s\n",name);
+    exit(-1);
+  }
+
   data.set   = set;
   data.dim   = dim;
   data.dat   = dat;
@@ -140,12 +212,23 @@ void op_decl_dat_char(op_set set, int dim, char const *type, int size, char *dat
   data.type  = type;
   data.size  = dim*size;
   data.index = OP_dat_index;
+
+  if (OP_dat_index==OP_dat_max) {
+    OP_dat_max += 10;
+    OP_dat_list = (op_dat **) realloc(OP_dat_list,OP_dat_max*sizeof(op_dat *));
+    if (OP_dat_list==NULL) {
+      printf(" op_decl_dat error -- error reallocating memory\n");
+      exit(-1);  
+    }
+  }
+
   OP_dat_list[OP_dat_index++] = &data;
 
 #ifndef OP_x86
   cutilSafeCall(cudaMalloc((void **)&data.dat_d, data.size*set.size));
   cutilSafeCall(cudaMemcpy(data.dat_d, data.dat, data.size*set.size,
                 cudaMemcpyHostToDevice));
+  cutilSafeCall(cudaThreadSynchronize());
 #endif
 }
 
@@ -185,7 +268,7 @@ void op_diagnostic_output(){
 void op_timing_output() {
   printf("\n  count     time     GB/s     GB/s   kernel name ");
   printf("\n ----------------------------------------------- \n");
-  for (int n=0; n<100; n++) {
+  for (int n=0; n<OP_KERNELS_MAX; n++) {
     if (OP_kernels[n].count>0) {
       if (OP_kernels[n].transfer2==0.0f)
         printf(" %6d  %8.4f %8.4f            %s \n",
@@ -242,6 +325,7 @@ void mvHostToDevice(T **map, int size) {
   T *tmp;
   cutilSafeCall(cudaMalloc((void **)&tmp, size));
   cutilSafeCall(cudaMemcpy(tmp, *map, size, cudaMemcpyHostToDevice));
+  cutilSafeCall(cudaThreadSynchronize());
   free(*map);
   *map = tmp;
 }
@@ -294,16 +378,19 @@ void reallocReductArrays(int reduct_bytes) {
 void mvConstArraysToDevice(int consts_bytes) {
   cutilSafeCall(cudaMemcpy(OP_consts_d, OP_consts_h, consts_bytes,
                 cudaMemcpyHostToDevice));
+  cutilSafeCall(cudaThreadSynchronize());
 }
 
 void mvReductArraysToDevice(int reduct_bytes) {
   cutilSafeCall(cudaMemcpy(OP_reduct_d, OP_reduct_h, reduct_bytes,
                 cudaMemcpyHostToDevice));
+  cutilSafeCall(cudaThreadSynchronize());
 }
 
 void mvReductArraysToHost(int reduct_bytes) {
   cutilSafeCall(cudaMemcpy(OP_reduct_h, OP_reduct_d, reduct_bytes,
                 cudaMemcpyDeviceToHost));
+  cutilSafeCall(cudaThreadSynchronize());
 }
 
 
@@ -415,7 +502,7 @@ extern op_plan * plan(char const * name, op_set set, int nargs, op_dat *args, in
 
   int ip=0, match=0;
 
-  while (match==0 && ip<OP_nplans) {
+  while (match==0 && ip<OP_plan_index) {
     if ( (strcmp(name,        OP_plans[ip].name)==0)
              && (set.index == OP_plans[ip].set_index)
              && (nargs     == OP_plans[ip].nargs) ) {
@@ -491,6 +578,18 @@ extern op_plan * plan(char const * name, op_set set, int nargs, op_dat *args, in
   if (bsize==0) bsize = (48*1024/(64*maxbytes))*64;
   int nblocks = (set.size-1)/bsize + 1;
 
+  // enlarge OP_plans array if needed
+
+  if (ip==OP_plan_max) {
+    // printf("allocating more memory for OP_plans \n");
+    OP_plan_max += 10;
+    OP_plans = (op_plan *) realloc(OP_plans,OP_plan_max*sizeof(op_plan));
+    if (OP_plans==NULL) {
+      printf(" op_plan error -- error reallocating memory for OP_plans\n");
+      exit(-1);  
+    }
+  }
+
   // allocate memory for new execution plan and store input arguments
 
   OP_plans[ip].arg_idxs  = (int *)malloc(nargs*sizeof(int));
@@ -533,7 +632,7 @@ extern op_plan * plan(char const * name, op_set set, int nargs, op_dat *args, in
   OP_plans[ip].set_index = set.index;
   OP_plans[ip].nargs     = nargs;
     
-  OP_nplans++;
+  OP_plan_index++;
 
   // allocate working arrays
 

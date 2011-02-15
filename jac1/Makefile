@@ -13,7 +13,7 @@ LIB		:= -L$(CUDA)/lib64
 
 CCFLAGS		:= -g -fPIC -DUNIX -Wall -Wextra
 NVCCFLAGS	:= -g -G -arch=sm_20 -Xptxas=-v -use_fast_math
-LIBS		:= -lcudart
+LIBS		:= $(LIB) -lcudart
 OMP		:= -fopenmp -lgomp
 
 #
@@ -44,13 +44,14 @@ jac_op:		jac_op.cpp jac_kernels.cpp $(OP2)/op_datatypes.h \
 #
 
 jac_cuda:	jac_op.o jac_kernels.o
-		g++ -fPIC -o jac_cuda jac_op.o jac_kernels.o $(LIB) $(LIBS)
+		g++ -fPIC -o jac_cuda jac_op.o jac_kernels.o $(LIBS)
 
-jac_op.o:	jac_op.cpp $(OP2)/op_datatypes.h
+jac_op.o:	jac_op.cpp $(OP2)/op_datatypes.h Makefile
 		g++ $(INC) $(CCFLAGS) -c -o jac_op.o jac_op.cpp
 
-jac_kernels.o:	jac_kernels.cu $(OP2)/op_lib.cu $(OP2)/op_datatypes.h \
-		res_kernel.cu update_kernel.cu \
+jac_kernels.o:	jac_kernels.cu $(OP2)/op_lib.cu \
+                $(OP2)/op_datatypes.h  Makefile \
+		res_kernel.cu update_kernel.cu  \
 		res.h         update.h
 		nvcc $(INC) $(NVCCFLAGS) -c -o jac_kernels.o jac_kernels.cu
 

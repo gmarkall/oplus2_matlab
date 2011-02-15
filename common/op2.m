@@ -273,7 +273,7 @@ for narg = 1: nargin
         file = strvcat(file,'  int   offset_s,   ',...
                             '  int   set_size ) {',' ');
       elseif (target==OP_x86)
-        file = strvcat(file,'  int   begin,    ',...
+        file = strvcat(file,'  int   start,    ',...
                             '  int   finish ) {',' ');
       end
     end
@@ -498,7 +498,7 @@ for narg = 1: nargin
 
       elseif (target==OP_x86)
         file = strvcat(file,' ','  // process set elements',' ', ...
-                                '  for (int n=begin; n<finish; n++) {');
+                                '  for (int n=start; n<finish; n++) {');
       end
     end
 
@@ -529,19 +529,34 @@ for narg = 1: nargin
       elseif (maps(m)==OP_MAP)
         line = [ line sprintf('ind_arg%d_s+ARG_maps[n+offset_b]*DIM,',inds(m)-1) ];
       elseif (maps(m)==OP_ID)
-        if (target==OP_CUDA && ninds==0)
-          if (dims{m}=='1')
-            line = [ line 'ARG+n,' ];
-          else
-            line = [ line 'ARG_l,' ];
-          end
+        if (ninds>0)
+          line = [ line 'ARG+(n+offset_b)*DIM,' ]; % load directly from device memory
         else
-	  if (target==OP_CUDA)
-            line = [ line 'ARG+(n+offset_b)*DIM,' ];
-          else
+          if (target==OP_CUDA)
+            if (dims{m}=='1')
+              line = [ line 'ARG+n,' ];            % load directly from device memory
+            else
+              line = [ line 'ARG_l,' ];            % pre-loaded into local variables
+            end
+
+          elseif(target==OP_x86)
             line = [ line 'ARG+n*DIM,' ];
           end
         end
+
+%        if (target==OP_CUDA && ninds==0)
+%          if (dims{m}=='1')
+%            line = [ line 'ARG+n,' ];
+%          else
+%            line = [ line 'ARG_l,' ];
+%          end
+%        else
+%	  if (ninds>0)
+%            line = [ line 'ARG+(n+offset_b)*DIM,' ];
+%          else
+%            line = [ line 'ARG+n*DIM,' ];
+%          end
+%        end
       else
         error('internal error 1')
       end
@@ -760,7 +775,9 @@ for narg = 1: nargin
       file = strvcat(file,' ',...
        '  if (OP_diags>2) {              ',...
       ['    printf(" kernel routine with indirection: ' fn_name ' \n");'],...
-       '  }                              ');
+       '  }                              ',' ',...
+       '  // get plan                    ',' ',...
+       '  op_plan *Plan = plan(name,set,nargs,args,idxs,maps,dims,typs,accs,ninds,inds);');
 
 %
 % direct bit
@@ -917,8 +934,6 @@ for narg = 1: nargin
 
       if (target==OP_CUDA)
        file = strvcat(file,' ',...
-        '  // get plan                    ',' ',...
-        '  op_plan *Plan = plan(name,set,nargs,args,idxs,maps,dims,typs,accs,ninds,inds);',' ',...
         '  // execute plan                ',' ',...
         '  int block_offset = 0;          ',' ',...
         '  for (int col=0; col<(*Plan).ncolors; col++) { ',' ',...
@@ -963,8 +978,6 @@ for narg = 1: nargin
 
       elseif (target==OP_x86)
        file = strvcat(file,' ',...
-        '  // get plan                    ',' ',...
-        '  op_plan *Plan = plan(name,set,nargs,args,idxs,maps,dims,typs,accs,ninds,inds);',' ',...
         '  // execute plan                ',' ',...
         '  int block_offset = 0;          ',' ',...
         '  for (int col=0; col<(*Plan).ncolors; col++) { ',...
@@ -1004,21 +1017,20 @@ for narg = 1: nargin
 % kernel call for direct version
 %
     else
-      file = strvcat(file,' ','  // work out shared memory requirements per element',...
-                          ' ','  int nshared = 0;');
+        if (target==OP_CUDA)
+        file = strvcat(file,' ','  // work out shared memory requirements per element',...
+                            ' ','  int nshared = 0;');
 
-      for m = 1:nargs
-        if(maps(m)~=OP_GBL && dims{m}~='1');
-          line = '  nshared = MAX(nshared,sizeof(TYP)*DIM);';
-          file = strvcat(file,rep(line,m));
+        for m = 1:nargs
+          if(maps(m)~=OP_GBL && dims{m}~='1');
+            line = '  nshared = MAX(nshared,sizeof(TYP)*DIM);';
+            file = strvcat(file,rep(line,m));
+          end
         end
-      end
-      
 
-      file = strvcat(file,' ','  // execute plan                    ',' ',...
-                              '  int offset_s = nshared*OP_WARPSIZE;',' ');
+        file = strvcat(file,' ','  // execute plan                    ',' ',...
+                                '  int offset_s = nshared*OP_WARPSIZE;',' ');
 
-      if (target==OP_CUDA)
         if (reduct)
           file = strvcat(file,'  nshared = MAX(nshared*nthread,reduct_size*nthread);',' ');
         else
@@ -1037,10 +1049,11 @@ for narg = 1: nargin
          ['  cutilCheckMsg("op_cuda_', fn_name ' execution failed\n");']);
 
       elseif (target==OP_x86)
-        file = strvcat(file,'#pragma omp parallel for                     ',...
-                            '  for (int thr=0; thr<nthreads; thr++) {         ',...
-                            '    int start  = (set.size* thr   )/nthreads;', ...
-                            '    int finish = (set.size*(thr+1))/nthreads;');
+        file = strvcat(file,' ','  // execute plan                            ',...
+                            ' ','#pragma omp parallel for                     ',...
+                                '  for (int thr=0; thr<nthreads; thr++) {     ',...
+                                '    int start  = (set.size* thr   )/nthreads;',...
+                                '    int finish = (set.size*(thr+1))/nthreads;');
         line = ['    op_x86_' fn_name '( '];
 
         for m = 1:nargs
@@ -1299,6 +1312,8 @@ end
 
 if (target==OP_CUDA)
   file = strvcat(...
+  '// number of kernels      ',' ',...
+  sprintf('#define OP_KERNELS_MAX %d',nker+1),' ',...
   '// header                 ',' ',...
   '#include "op_lib.cu"      ',' ',...
   '// global constants       ',' ',...
@@ -1318,6 +1333,8 @@ if (target==OP_CUDA)
 
 elseif (target==OP_x86) 
   file = strvcat(...
+  '// number of kernels      ',' ',...
+  sprintf('#define OP_KERNELS_MAX %d',nker+1),' ',...
   '// header                 ',' ',...
   '#include "op_lib.cpp"      ',' ',...
   '// global constants       ',' ',...

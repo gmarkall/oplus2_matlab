@@ -81,7 +81,7 @@ int main(int argc, char **argv){
 
   int    *pp = (int *)malloc(sizeof(int)*2*nedge);
 
-  double *A  = (double *)malloc(sizeof(double)*nedge);
+  float  *A  = (float *)malloc(sizeof(float)*nedge);
   float  *r  = (float *)malloc(sizeof(float)*nnode);
   float  *u  = (float *)malloc(sizeof(float)*nnode);
   float  *du = (float *)malloc(sizeof(float)*nnode);
@@ -134,7 +134,7 @@ int main(int argc, char **argv){
 
   op_decl_map(edges,nodes,2,pp, ppedge,"ppedge");
 
-  op_decl_dat(edges,1,"double",A,  p_A, "p_A" );
+  op_decl_dat(edges,1,"float", A,  p_A, "p_A" );
   op_decl_dat(nodes,1,"float", r,  p_r, "p_r" );
   op_decl_dat(nodes,1,"float", u,  p_u, "p_u" );
   op_decl_dat(nodes,1,"float", du, p_du,"p_du");
@@ -150,7 +150,7 @@ int main(int argc, char **argv){
 
   for (int iter=0; iter<NITER; iter++) {
     op_par_loop_4(res,"res", edges,
-                  p_A,  -1,OP_ID,  1,"double",OP_READ,
+                  p_A,  -1,OP_ID,  1,"float", OP_READ,
                   p_u,   1,ppedge, 1,"float", OP_READ,
                   p_du,  0,ppedge, 1,"float", OP_INC,
                   &beta,-1,OP_GBL, 1,"float", OP_READ);

@@ -14,8 +14,9 @@ LIB		:= -L$(CUDA)/lib64
 # -Xptxas -dlcm=ca   => use L1 cache
 # -Xptxas -dlcm=cg   => no L1 cache
 
-#CCFLAGS		:= -g -fPIC -DUNIX -Wall -Wextra
+#CCFLAGS	:= -g -fPIC -DUNIX -Wall -Wextra
 #NVCCFLAGS	:= -g -G -arch=sm_20 -Xptxas=-v -use_fast_math
+
 CCFLAGS		:= -O3 -fPIC -DUNIX -Wall -Wextra
 #NVCCFLAGS	:= -O3 -maxrregcount 48 -arch=sm_20 \
 #		   -Xptxas -dlcm=cg -Xptxas=-v -use_fast_math

@@ -267,12 +267,26 @@ both in the single-threaded library and in the CUDA library.
 \newpage
 \section{Initialisation and termination routines}
 
-\begin{routine} {op\_init(int argc, char **argv)}
+\begin{routine} {op\_init(int argc, char **argv, int diags\_level)}
 {This routine must be called before all other OP routines.}
-\item \vspace{-0.4in}
+\item[argc, argv]   the usual command line arguments
+\item[diags\_level] an integer which defines the level of debugging
+                    diagnostics and reporting to be performed;
+                    \\0 -- none;
+                    \\1 -- error-checking;
+                    \\2 -- info on plan construction;
+                    \\3 -- report execution of parallel loops;
+                    \\4 -- report use of old plans;
+                    \\7 -- report positive checks in op\_plan\_check;
 \end{routine}
 
-\begin{routine} {op\_decl\_set(int size, op\_set *set, char *name)}
+
+\begin{routine} {op\_exit()}
+{This routine must be called last to cleanly terminate the OP computation.}
+\item \vspace{-0.3in}
+\end{routine}
+
+\begin{routine} {op\_decl\_set(int size, op\_set set, char *name)}
 {This routine declares information about a set.}
 
 \item[size]          number of elements in the set
@@ -280,7 +294,8 @@ both in the single-threaded library and in the CUDA library.
 \item[name]          a name used for output diagnostics
 \end{routine}
 
-\begin{routine} {op\_decl\_map(op\_set from, op\_set to, int dim, int *imap, op\_map *map, char *name)}
+\begin{routine} {op\_decl\_map(op\_set from, op\_set to, int dim, int *imap, op\_map map,\\
+\hspace*{1in} char *name)}
 {This routine declares information about a mapping from one set to another.}
 
 \item[from]          set pointed from
@@ -290,6 +305,8 @@ both in the single-threaded library and in the CUDA library.
 \item[map]           output OP mapping ID
 \item[name]          a name used for output diagnostics
 \end{routine}
+
+\newpage
 
 \begin{routine} {op\_decl\_const(int dim, char *type, T *dat, char *name)}
 {This routine declares constant data with global scope to be used in user's kernel functions.
@@ -308,10 +325,8 @@ variable.}
                      a scalar variable if {\tt dim=1}, otherwise an array of size {\tt dim}
 \end{routine}
 
-
-\newpage
-
-\begin{routine} {op\_decl\_dat(op\_set set, int dim, char *type, T *dat, op\_dat *data,\\ char *name)}
+\begin{routine} {op\_decl\_dat(op\_set set, int dim, char *type, T *idat, op\_dat dat,\\
+\hspace*{0.9in} char *name)}
 {This routine declares information about data associated with a set.}
 
 \item[set]           set
@@ -321,7 +336,7 @@ variable.}
                      this restriction will be removed in the future but a literal constant will
                      remain more efficient
 \item[type]          datatype, either intrinsic or user-defined
-\item[dat]          input data of type {\tt T}  (checked for consistency with {\tt type} at run-time)
+\item[idat]          input data of type {\tt T}  (checked for consistency with {\tt type} at run-time)
 \item[dat]           output OP dataset ID
 \item[name]          a name used for output diagnostics
 \end{routine}
@@ -337,12 +352,12 @@ variable.}
 \item \vspace{-0.3in}
 \end{routine}
 
-
-\begin{routine} {op\_exit()}
-{This routine must be called last to cleanly terminate the OP computation.}
-\item \vspace{-0.3in}
-\end{routine}
-
+%\vspace{0.5in}
+%
+%In the future there will be a new function {\tt \bf op\_partition} which 
+%will re-number all of the elements in each set to maximise the data reuse 
+%within each mini-partition.  This may be based on recursive geometric bisection
+%if the user is able to supply coordinate data for one of the sets.
 
 
 \newpage
@@ -479,15 +494,67 @@ used in more than one parallel loop, or when global constant data is set/updated
 in more than one place within the code.  This will be addressed in the future.
 
 
-\section{Future changes}
+\section{Error-checking}
 
-There will be a new function {\tt \bf op\_partition} which will re-number 
-all of the elements in each set, to maximise the data reuse within each 
-mini-partition.  This is likely to use the same partitioning algorithm which
-will be employed for the higher-level distributed-memory partitioning for the
-MPI implementation in phase 2.
+At compile-time, there is a check to ensure that CUDA 3.2 or later is used
+when compiling the CUDA executable; this is because of compiler bugs in previous
+versions of CUDA.
+
+At run-time, OP2 checks the user-supplied data in various ways:
+\begin{itemize}
+\item
+checks that a set has a strictly positive number of elements
+\item
+checks that a map has legitimate mapping indices, 
+i.e.~they map to elements within the range of the target set
+\item
+checks that all input sets, maps and datasets have been properly initialised
+\item
+checks that variables have the correct declared type
+\end{itemize}
+
+
+
+It would be very helpful to get feedback from users on suggestions for 
+additional error-checking.
+
 
 \newpage
+\section{32-bit and 64-bit CUDA}
+
+Section 3.1.6 of the CUDA 3.2 Programming Guide says:
+\begin{quotation}
+The 64-bit version of {\tt nvcc} compiles device code in 64-bit mode 
+(i.e. pointers are 64-bit). Device code compiled in 64-bit mode 
+is only supported with host code compiled in 64-bit mode.
+
+Similarly, the 32-bit version of {\tt nvcc} compiles device code in 
+32-bit mode and device code compiled in 32-bit mode is only 
+supported with host code compiled in 32-bit mode.
+
+The 32-bit version of {\tt nvcc} can compile device code in 64-bit mode 
+also using the {\tt -m64} compiler option.
+
+The 64-bit version of {\tt nvcc} can compile device code in 32-bit mode 
+also using the {\tt -m32} compiler option.
+\end{quotation}
+
+On Windows and Linux systems, there are separate CUDA download files
+for 32-bit and 64-bit operating systems, so the version of CUDA which 
+is installed matches the operating system.~i.e.~the 64-bit version is 
+installed on a 64-bit operating system.
+
+Mac OS X can handle both 32-bit and 64-bit executables, and it appears
+that it is the 32-bit version of {\tt nvcc} which is installed.  Therefore
+the Makefiles in the OP2 distribution may need the {\tt -m64} flag
+added to {\tt NVCCFLAGS} to produce 64-bit object code.
+
+The Makefiles in the OP2 distribution assume 64-bit compilation and 
+therefore they link to the 64-bit CUDA runtime libraries in {\tt /lib64} 
+within the CUDA toolkit distribution.  This will need to be changed to 
+{\tt /lib} for 32-bit code.
+
+%\newpage
 
 \section{Phase 2 proposal}
 
@@ -558,7 +625,8 @@ and so on.
 This is effectively using a simple contiguous block partitioning of the datasets, 
 but it is very important to note that this will not be used for the parallel 
 computation.  OP2 will re-partition the datasets (in parallel, probably using 
-\href{http://glaros.dtc.umn.edu/gkhome/metis/parmetis/overview}{\tt parmetis}), 
+\href{http://glaros.dtc.umn.edu/gkhome/metis/parmetis/overview}{\tt parmetis} or
+\href{http://www.labri.fr/perso/pelegrin/scotch/}{\tt PT-Scotch}), 
 will re-number the mapping tables as needed (as well as constructing import/export 
 lists for halo data exchange) and will move all data/mappings/datasets to the 
 correct MPI process.

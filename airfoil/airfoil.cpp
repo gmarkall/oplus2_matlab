@@ -82,9 +82,13 @@ int main(int argc, char **argv){
   printf("reading in grid \n");
 
   FILE *fp;
-  fp = fopen("new_grid.dat","r");
+  if ( (fp = fopen("new_grid.dat","r")) == NULL) {
+    printf("can't open file new_grid.dat\n"); exit(-1);
+  }
 
-  fscanf(fp,"%d %d %d %d \n",&nnode, &ncell, &nedge, &nbedge);
+  if (fscanf(fp,"%d %d %d %d \n",&nnode, &ncell, &nedge, &nbedge) != 4) {
+    printf("error reading from new_grid.dat\n"); exit(-1);
+  }
 
   cell   = (int *) malloc(4*ncell*sizeof(int));
   edge   = (int *) malloc(2*nedge*sizeof(int));
@@ -99,22 +103,31 @@ int main(int argc, char **argv){
   res    = (float *) malloc(4*ncell*sizeof(float));
   adt    = (float *) malloc(  ncell*sizeof(float));
 
-  for (int n=0; n<nnode; n++)
-    fscanf(fp,"%f %f \n",&x[2*n], &x[2*n+1]);
+  for (int n=0; n<nnode; n++) {
+    if (fscanf(fp,"%f %f \n",&x[2*n], &x[2*n+1]) != 2) {
+      printf("error reading from new_grid.dat\n"); exit(-1);
+    }
+  }
 
   for (int n=0; n<ncell; n++) {
-    fscanf(fp,"%d %d %d %d \n",&cell[4*n  ], &cell[4*n+1],
-                               &cell[4*n+2], &cell[4*n+3]);
+    if (fscanf(fp,"%d %d %d %d \n",&cell[4*n  ], &cell[4*n+1],
+                                   &cell[4*n+2], &cell[4*n+3]) != 4) {
+      printf("error reading from new_grid.dat\n"); exit(-1);
+    }
   }
 
   for (int n=0; n<nedge; n++) {
-    fscanf(fp,"%d %d %d %d \n",&edge[2*n],&edge[2*n+1],
-                               &ecell[2*n],&ecell[2*n+1]);
+    if (fscanf(fp,"%d %d %d %d \n",&edge[2*n], &edge[2*n+1],
+                                   &ecell[2*n],&ecell[2*n+1]) != 4) {
+      printf("error reading from new_grid.dat\n"); exit(-1);
+    }
   }
 
   for (int n=0; n<nbedge; n++) {
-    fscanf(fp,"%d %d %d %d \n",&bedge[2*n],&bedge[2*n+1],
-                               &becell[n],&bound[n]);
+    if (fscanf(fp,"%d %d %d %d \n",&bedge[2*n],&bedge[2*n+1],
+                                   &becell[n], &bound[n]) != 4) {
+      printf("error reading from new_grid.dat\n"); exit(-1);
+    }
   }
 
   fclose(fp);
