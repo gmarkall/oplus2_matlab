@@ -142,8 +142,12 @@ typedef struct {
 //  min / max definitions
 //
 
+#ifndef MIN
 #define MIN(a,b) ((a<b) ? (a) : (b))
+#endif
+#ifndef MAX
 #define MAX(a,b) ((a>b) ? (a) : (b))
+#endif
 
 //
 // alignment macro based on example on page 50 of CUDA Programming Guide version 3.0

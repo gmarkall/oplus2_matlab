@@ -160,11 +160,16 @@ int comp(const void *a2, const void *b2) {
       return 1;
 }
 
+
 //
-// utility routine to move arrays to GPU device
+// next few routines are CUDA-specific
 //
 
 #ifndef OP_x86
+
+//
+// utility routine to move arrays to GPU device
+//
 
 template <class T>
 void mvHostToDevice(T **ptr, int size) {
@@ -238,172 +243,6 @@ void mvReductArraysToHost(int reduct_bytes) {
 __device__ int OP_reduct_lock=0;  // important: must be initialised to 0
 
 
-template < op_access reduction >
-__inline__ __device__ void op_reduction(volatile float *dat_g, float dat_l)
-{
-  int tid = threadIdx.x;
-  int d   = blockDim.x>>1; 
-  extern __shared__ float temp[];
-
-  if (tid>=d) temp[tid-d] = dat_l;
-  __syncthreads();
-
-  if (tid<d) {
-    switch (reduction) {
-    case OP_INC:
-      temp[tid] = temp[tid] + dat_l;
-      break;
-    case OP_MIN:
-      if(dat_l<temp[tid]) temp[tid] = dat_l;
-      break;
-    case OP_MAX:
-      if(dat_l>temp[tid]) temp[tid] = dat_l;
-      break;
-    }
-  }
-
-  for (d>>=1; d>warpSize; d>>=1) {
-    __syncthreads();
-    if (tid<d) {
-      switch (reduction) {
-      case OP_INC:
-        temp[tid] = temp[tid] + temp[tid+d];
-        break;
-      case OP_MIN:
-        if(temp[tid+d]<temp[tid]) temp[tid] = temp[tid+d];
-        break;
-      case OP_MAX:
-        if(temp[tid+d]>temp[tid]) temp[tid] = temp[tid+d];
-        break;
-      }
-    }
-  }
-
-  __syncthreads();
-
-  volatile float *vtemp = temp;   // see Fermi compatibility guide 
-
-  if (tid<warpSize) {
-    for (; d>0; d>>=1) {
-      if (tid<d) {
-        switch (reduction) {
-        case OP_INC:
-          vtemp[tid] = vtemp[tid] + vtemp[tid+d];
-          break;
-        case OP_MIN:
-          if(vtemp[tid+d]<vtemp[tid]) vtemp[tid] = vtemp[tid+d];
-          break;
-        case OP_MAX:
-          if(vtemp[tid+d]>vtemp[tid]) vtemp[tid] = vtemp[tid+d];
-          break;
-        }
-      }
-    }
-  }
-
-  if (tid==0) {
-    do {} while(atomicCAS(&OP_reduct_lock,0,1));  // set lock
-
-    switch (reduction) {
-    case OP_INC:
-      *dat_g = *dat_g + temp[0];
-      break;
-    case OP_MIN:
-      if(temp[0]<*dat_g) *dat_g = temp[0];
-      break;
-    case OP_MAX:
-      if(temp[0]>*dat_g) *dat_g = temp[0];
-      break;
-    }
-
-    __threadfence();                // ensure *dat_g update complete
-    OP_reduct_lock = 0;             // free lock
-  }
-
-  __syncthreads();  // important to finish one reduction before the next
-}
-
-
-template < op_access reduction >
-__inline__ __device__ void op_reduction(volatile double *dat_g, double dat_l)
-{
-  int tid = threadIdx.x;
-  int d   = blockDim.x>>1; 
-  extern __shared__ double temp[];
-
-  if (tid>=d) temp[tid-d] = dat_l;
-  __syncthreads();
-
-  if (tid<d) {
-    switch (reduction) {
-    case OP_INC:
-      temp[tid] = temp[tid] + dat_l;
-      break;
-    case OP_MIN:
-      if(dat_l<temp[tid]) temp[tid] = dat_l;
-      break;
-    case OP_MAX:
-      if(dat_l>temp[tid]) temp[tid] = dat_l;
-      break;
-    }
-  }
-
-  for (d>>=1; d>warpSize; d>>=1) {
-    __syncthreads();
-    if (tid<d) {
-      switch (reduction) {
-      case OP_INC:
-        temp[tid] = temp[tid] + temp[tid+d];
-        break;
-      case OP_MIN:
-        if(temp[tid+d]<temp[tid]) temp[tid] = temp[tid+d];
-        break;
-      case OP_MAX:
-        if(temp[tid+d]>temp[tid]) temp[tid] = temp[tid+d];
-        break;
-      }
-    }
-  }
-
-  __syncthreads();
-
-  if (tid<warpSize)
-    for (; d>0; d>>=1)
-      switch (reduction) {
-      case OP_INC:
-        temp[tid] = temp[tid] + temp[tid+d];
-        break;
-      case OP_MIN:
-        if(temp[tid+d]<temp[tid]) temp[tid] = temp[tid+d];
-        break;
-      case OP_MAX:
-        if(temp[tid+d]>temp[tid]) temp[tid] = temp[tid+d];
-        break;
-      }
-
-  if (tid==0) {
-    do {} while(atomicCAS(&OP_reduct_lock,0,1));  // set lock
-
-    switch (reduction) {
-    case OP_INC:
-      *dat_g = *dat_g + temp[0];
-      break;
-    case OP_MIN:
-      if(temp[0]<*dat_g) *dat_g = temp[0];
-      break;
-    case OP_MAX:
-      if(temp[0]>*dat_g) *dat_g = temp[0];
-      break;
-    }
-
-    __threadfence();                // ensure *dat_g update complete
-    OP_reduct_lock = 0;             // free lock
-  }
-
-  __syncthreads();  // important to finish one reduction before the next
-}
-
-
 template < op_access reduction, class T >
 __inline__ __device__ void op_reduction(volatile T *dat_g, T dat_l)
 {
@@ -447,19 +286,25 @@ __inline__ __device__ void op_reduction(volatile T *dat_g, T dat_l)
 
   __syncthreads();
 
-  if (tid<warpSize)
-    for (; d>0; d>>=1)
-      switch (reduction) {
-      case OP_INC:
-        temp[tid] = temp[tid] + temp[tid+d];
-        break;
-      case OP_MIN:
-        if(temp[tid+d]<temp[tid]) temp[tid] = temp[tid+d];
-        break;
-      case OP_MAX:
-        if(temp[tid+d]>temp[tid]) temp[tid] = temp[tid+d];
-        break;
+  volatile T *vtemp = temp;   // see Fermi compatibility guide 
+
+  if (tid<warpSize) {
+    for (; d>0; d>>=1) {
+      if (tid<d) {
+        switch (reduction) {
+        case OP_INC:
+          vtemp[tid] = vtemp[tid] + vtemp[tid+d];
+          break;
+        case OP_MIN:
+          if(vtemp[tid+d]<vtemp[tid]) vtemp[tid] = vtemp[tid+d];
+          break;
+        case OP_MAX:
+          if(vtemp[tid+d]>vtemp[tid]) vtemp[tid] = vtemp[tid+d];
+          break;
+        }
       }
+    }
+  }
 
   if (tid==0) {
     do {} while(atomicCAS(&OP_reduct_lock,0,1));  // set lock
@@ -482,6 +327,7 @@ __inline__ __device__ void op_reduction(volatile T *dat_g, T dat_l)
 
   __syncthreads();  // important to finish one reduction before the next
 }
+
 
 #endif
 
