@@ -281,19 +281,25 @@ __inline__ __device__ void op_reduction(volatile float *dat_g, float dat_l)
 
   __syncthreads();
 
-  if (tid<warpSize)
-    for (; d>0; d>>=1)
-      switch (reduction) {
-      case OP_INC:
-        temp[tid] = temp[tid] + temp[tid+d];
-        break;
-      case OP_MIN:
-        if(temp[tid+d]<temp[tid]) temp[tid] = temp[tid+d];
-        break;
-      case OP_MAX:
-        if(temp[tid+d]>temp[tid]) temp[tid] = temp[tid+d];
-        break;
+  volatile float *vtemp = temp;   // see Fermi compatibility guide 
+
+  if (tid<warpSize) {
+    for (; d>0; d>>=1) {
+      if (tid<d) {
+        switch (reduction) {
+        case OP_INC:
+          vtemp[tid] = vtemp[tid] + vtemp[tid+d];
+          break;
+        case OP_MIN:
+          if(vtemp[tid+d]<vtemp[tid]) vtemp[tid] = vtemp[tid+d];
+          break;
+        case OP_MAX:
+          if(vtemp[tid+d]>vtemp[tid]) vtemp[tid] = vtemp[tid+d];
+          break;
+        }
       }
+    }
+  }
 
   if (tid==0) {
     do {} while(atomicCAS(&OP_reduct_lock,0,1));  // set lock
