@@ -10,7 +10,7 @@ update.h         -- kernel function
 
 op_seq.h         -- header for single-thread CPU execution
 
-op_seq.c         -- routines for single-thread CPU execution
+op_seq.cpp       -- routines for single-thread CPU execution
 
 op2_seq_gen.m    -- MATLAB routine to create op_seq.h
 
@@ -49,12 +49,12 @@ projects.tex/pdf -- possible student mini-projects
 
 The sequential CPU version is built by the command:
 
-g++ -o jac_seq jac.cpp op_seq.c
+g++ -o jac_seq jac.cpp op_seq.cpp
 
 
 The CUDA GPU version is built by first executing the command:
 
-op2("jac")
+op2('jac')
 
 in MATLAB, to produce the files
 

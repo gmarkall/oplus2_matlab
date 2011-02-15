@@ -44,31 +44,52 @@
 enum op_datatype { OP_FLOAT, OP_DOUBLE, OP_INT };
 enum op_access   { OP_READ, OP_WRITE, OP_RW, OP_INC };
 
+//
+// run-time type-checking routine
+//
+
+int type_error(const double *, op_datatype);
+int type_error(const float  *, op_datatype);
+int type_error(const int    *, op_datatype);
+
+//
+// structures
+//
+
 typedef struct {
-  int         size, index;
-  char const *name;
+  int         size,   // number of elements in set
+              index;  // index into list of sets 
+  char const *name;   // name of set
 } op_set;
 
-
 typedef struct {
-  op_set      from, to;
-  int         dim, index, *ptr; 
-  char const *name;
+  op_set      from,   // set pointed from
+              to;     // set pointed to
+  int         dim,    // dimension of pointer
+              index,  // index into list of pointers
+             *ptr;    // array defining pointer
+  char const *name;   // name of pointer
 } op_ptr;
 
-// identity mapping
-#define OP_ID (op_ptr) {{0,0,"null"},{0,0,"null"},0,-1,NULL,"id"}
-
 typedef struct {
-  op_set      set;
-  int         dim, index;
-  float      *fdat, *fdat_d;
-  double     *ddat, *ddat_d;
-  int        *idat, *idat_d;
-  op_datatype type;
-  char const *name;
+  op_set      set;    // set on which data is defined
+  int         dim,    // dimension of data
+              index,  // index into list of datasets
+              size;   // size of each element in dataset
+  char       *dat,    // data on host
+             *dat_d;  // data on device (GPU)
+  op_datatype type;   // datatype
+  char const *name;   // name of dataset
 } op_dat;
 
+// null set
+#define OP_NULL (op_set) {0,0,"null"}
+
+// identity mapping
+#define OP_ID (op_ptr) {OP_NULL,OP_NULL,0,-1,NULL,"id"}
+
+// global identifier
+#define OP_GBL (op_ptr) {OP_NULL,OP_NULL,0,-2,NULL,"gbl"}
 
 typedef struct {
   // input arguments

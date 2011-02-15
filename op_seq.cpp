@@ -57,23 +57,14 @@ op_plan   OP_plans[100];
 // run-time type-checking routine
 //
 
-int type_error(float *, op_datatype type) {
-  return (type != OP_FLOAT);
-}
-
-int type_error(double *, op_datatype type) {
-  return (type != OP_DOUBLE);
-}
-
-int type_error(int *, op_datatype type) {
-  return (type != OP_INT);
-}
+int type_error(const double *,op_datatype type){return (type != OP_DOUBLE);}
+int type_error(const float  *,op_datatype type){return (type != OP_FLOAT);}
+int type_error(const int    *,op_datatype type){return (type != OP_INT);}
 
 
 //
 // OP functions
 //
-
 
 void op_init(int argc, char **argv){
 }
@@ -100,63 +91,54 @@ void op_decl_ptr(op_set from, op_set to, int dim, int *ptr, op_ptr &pointer, cha
 
 
 template <class T>
-void op_decl_dat(op_set set, int dim, op_datatype type, T *dat, op_dat &data, char const *name){
-  data.set  = set;
-  data.dim  = dim;
+void op_decl_dat_T(op_set set, int dim, op_datatype type, T *dat, op_dat &data, char const *name){
 
   if (type_error(dat,type)) {
     printf("incorrect type specified for dataset \"%s\" \n",name);  exit(1);
   }
 
-  if (type == OP_FLOAT) {
-    data.fdat = (float *) dat;
-  }
-  else if (type == OP_DOUBLE) {
-    data.ddat = (double *) dat;
-  }
-  else if (type == OP_INT) {
-    data.idat = (int *) dat;
-  }
-
-  data.name = name;
-  data.type = type;
-
+  data.set   = set;
+  data.dim   = dim;
+  data.dat   = (char *) dat;
+  data.name  = name;
+  data.type  = type;
+  data.size  = dim*sizeof(T);
   data.index = OP_dat_index;
   OP_dat_list[OP_dat_index++] = &data;
 }
 
-void op_decl_ddat(op_set set, int dim, op_datatype type, double *dat, op_dat &data, char const *name){
-  op_decl_dat(set, dim, type, dat, data, name);
+void op_decl_dat(op_set set, int dim, op_datatype type, double *dat, op_dat &data, char const *name){
+  op_decl_dat_T(set, dim, type, dat, data, name);
 }
 
 
-void op_decl_fdat(op_set set, int dim, op_datatype type, float *dat, op_dat &data, char const *name){
-  op_decl_dat(set, dim, type, dat, data, name);
+void op_decl_dat(op_set set, int dim, op_datatype type, float *dat, op_dat &data, char const *name){
+  op_decl_dat_T(set, dim, type, dat, data, name);
 }
 
 
-void op_decl_idat(op_set set, int dim, op_datatype type, int *dat, op_dat &data, char const *name){
-  op_decl_dat(set, dim, type, dat, data, name);
+void op_decl_dat(op_set set, int dim, op_datatype type, int *dat, op_dat &data, char const *name){
+  op_decl_dat_T(set, dim, type, dat, data, name);
 }
 
 
 template <class T>
-void op_decl_const(int dim, op_datatype type, T *dat, char const *name){
+void op_decl_const_T(int dim, op_datatype type, T *dat, char const *name){
   if (type_error(dat,type)) {
     printf("incorrect type specified for constant \"%s\" \n",name);  exit(1);
   }
 }
 
-void op_decl_dconst(int dim, op_datatype type, double *dat, char const *name){
-     op_decl_const(dim, type, dat, name);
+void op_decl_const(int dim, op_datatype type, double *dat, char const *name){
+     op_decl_const_T(dim, type, dat, name);
 }
 
-void op_decl_fconst(int dim, op_datatype type, float *dat, char const *name){
-     op_decl_const(dim, type, dat, name);
+void op_decl_const(int dim, op_datatype type, float *dat, char const *name){
+     op_decl_const_T(dim, type, dat, name);
 }
 
-void op_decl_iconst(int dim, op_datatype type, int *dat, char const *name){
-     op_decl_const(dim, type, dat, name);
+void op_decl_const(int dim, op_datatype type, int *dat, char const *name){
+     op_decl_const_T(dim, type, dat, name);
 }
 
 

@@ -170,11 +170,21 @@ int main(int argc, char **argv){
 
   // main iteration loop
 
+  float beta = 1.0f;
+
   for (int iter=0; iter<NITER; iter++) {
-    op_par_loop_3(res,"res", edges,
+    /*
+    op_Par_Loop_3(res,"res", edges,
                   p_A, -1,OP_ID,  1,OP_DOUBLE,OP_READ,
                   p_u,  0,pedge2, 1,OP_FLOAT, OP_READ,
                   p_du, 0,pedge1, 1,OP_FLOAT, OP_INC);
+    */
+
+    op_par_loop_4(res,"res", edges,
+                  p_A,  -1,OP_ID,  1,OP_DOUBLE,OP_READ,
+                  p_u,   0,pedge2, 1,OP_FLOAT, OP_READ,
+                  p_du,  0,pedge1, 1,OP_FLOAT, OP_INC,
+                  &beta,-1,OP_GBL, 1,OP_FLOAT, OP_READ);
 
     op_par_loop_3(update,"update", nodes,
                   p_r, -1,OP_ID, 1,OP_FLOAT,OP_READ,

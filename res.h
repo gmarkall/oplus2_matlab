@@ -1,3 +1,3 @@
-void res(double *A, float *u, float *du){
-  *du += (*A)*(*u);
+void res(double *A, float *u, float *du, const float *beta){
+  *du += (*beta)*(*A)*(*u);
 }

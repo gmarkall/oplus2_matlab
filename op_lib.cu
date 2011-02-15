@@ -53,6 +53,9 @@ op_ptr  * OP_ptr_list[10];
 op_dat  * OP_dat_list[10];
 op_plan   OP_plans[100];
 
+int   OP_consts_bytes=0;
+char *OP_consts_h, *OP_consts_d;
+
 
 //
 // run-time type-checking routine
@@ -75,13 +78,11 @@ int type_error(int *, op_datatype type) {
 // OP functions
 //
 
-extern "C"
-void op_init(int argc, char **argv){
+extern void op_init(int argc, char **argv){
   cutilDeviceInit(argc, argv);
 }
 
-extern "C"
-void op_decl_set(int size, op_set &set, char const *name){
+extern void op_decl_set(int size, op_set &set, char const *name){
   set.size = size;
   set.name = name;
 
@@ -89,8 +90,7 @@ void op_decl_set(int size, op_set &set, char const *name){
   OP_set_list[OP_set_index++] = &set;
 }
 
-extern "C"
-void op_decl_ptr(op_set from, op_set to, int dim, int *ptr, op_ptr &pointer, char const *name){
+extern void op_decl_ptr(op_set from, op_set to, int dim, int *ptr, op_ptr &pointer, char const *name){
   pointer.from = from;
   pointer.to   = to;
   pointer.dim  = dim;
@@ -103,58 +103,44 @@ void op_decl_ptr(op_set from, op_set to, int dim, int *ptr, op_ptr &pointer, cha
 
 
 template <class T>
-void op_decl_dat(op_set set, int dim, op_datatype type, T *dat, op_dat &data, char const *name){
-  data.set  = set;
-  data.dim  = dim;
+void op_decl_dat_T(op_set set, int dim, op_datatype type, T *dat, op_dat &data, char const *name){
 
   if (type_error(dat,type)) {
     printf("incorrect type specified for dataset \"%s\" \n",name);  exit(1);
   }
 
-  if (type == OP_FLOAT) {
-    data.fdat = (float *) dat;
-    cutilSafeCall(cudaMalloc((void **)&data.fdat_d, sizeof(float)*set.size));
-    cutilSafeCall(cudaMemcpy(data.fdat_d, data.fdat, sizeof(float)*set.size,
-                  cudaMemcpyHostToDevice));
-  }
-  else if (type == OP_DOUBLE) {
-    data.ddat = (double *) dat;
-    cutilSafeCall(cudaMalloc((void **)&data.ddat_d, sizeof(double)*set.size));
-    cutilSafeCall(cudaMemcpy(data.ddat_d, data.ddat, sizeof(double)*set.size,
-                  cudaMemcpyHostToDevice));
-  }
-  else if (type == OP_INT) {
-    data.idat = (int *) dat;
-    cutilSafeCall(cudaMalloc((void **)&data.idat_d, sizeof(int)*set.size));
-    cutilSafeCall(cudaMemcpy(data.idat_d, data.idat, sizeof(int)*set.size,
-                  cudaMemcpyHostToDevice));
-  }
-
-  data.name = name;
-  data.type = type;
-
+  data.set   = set;
+  data.dim   = dim;
+  data.dat   = (char *) dat;
+  data.name  = name;
+  data.type  = type;
+  data.size  = dim*sizeof(T);
   data.index = OP_dat_index;
   OP_dat_list[OP_dat_index++] = &data;
+
+  cutilSafeCall(cudaMalloc((void **)&data.dat_d, data.size*set.size));
+  cutilSafeCall(cudaMemcpy(data.dat_d, data.dat, data.size*set.size,
+                cudaMemcpyHostToDevice));
 }
 
-extern "C"
-void op_decl_ddat(op_set set, int dim, op_datatype type, double *dat, op_dat &data, char const *name){
-  op_decl_dat(set, dim, type, dat, data, name);
+extern
+void op_decl_dat(op_set set, int dim, op_datatype type, double *dat, op_dat &data, char const *name){
+  op_decl_dat_T(set, dim, type, dat, data, name);
 }
 
-extern "C"
-void op_decl_fdat(op_set set, int dim, op_datatype type, float *dat, op_dat &data, char const *name){
-  op_decl_dat(set, dim, type, dat, data, name);
+extern
+void op_decl_dat(op_set set, int dim, op_datatype type, float *dat, op_dat &data, char const *name){
+  op_decl_dat_T(set, dim, type, dat, data, name);
 }
 
-extern "C"
-void op_decl_idat(op_set set, int dim, op_datatype type, int *dat, op_dat &data, char const *name){
-  op_decl_dat(set, dim, type, dat, data, name);
+extern
+void op_decl_dat(op_set set, int dim, op_datatype type, int *dat, op_dat &data, char const *name){
+  op_decl_dat_T(set, dim, type, dat, data, name);
 }
 
 
 template <class T>
-void op_decl_const(int dim, op_datatype type, T *dat, char const *name){
+void op_decl_const_T(int dim, op_datatype type, T *dat, char const *name){
   if (type_error(dat,type)) {
     printf("incorrect type specified for constant \"%s\" \n",name);  exit(1);
   }
@@ -163,27 +149,23 @@ void op_decl_const(int dim, op_datatype type, T *dat, char const *name){
   cutilSafeCall( cudaMemcpyToSymbol(name, dat, sizeof(T)*dim));
 }
 
-extern "C"
-void op_decl_dconst(int dim, op_datatype type, double *dat, char const *name){
-     op_decl_const(dim, type, dat, name);
+extern void op_decl_const(int dim, op_datatype type, double *dat, char const *name){
+            op_decl_const_T(dim, type, dat, name);
 }
 
-extern "C"
-void op_decl_fconst(int dim, op_datatype type, float *dat, char const *name){
-     op_decl_const(dim, type, dat, name);
+extern void op_decl_const(int dim, op_datatype type, float *dat, char const *name){
+            op_decl_const_T(dim, type, dat, name);
 }
 
-extern "C"
-void op_decl_iconst(int dim, op_datatype type, int *dat, char const *name){
-     op_decl_const(dim, type, dat, name);
+extern void op_decl_const(int dim, op_datatype type, int *dat, char const *name){
+            op_decl_const_T(dim, type, dat, name);
 }
 
 //
 // diagnostic output routine
 //
 
-extern "C"
-void op_diagnostic_output(){
+extern void op_diagnostic_output(){
   if (OP_DIAGS > 1) {
     printf("\n  OP diagnostic output\n");
     printf(  "  --------------------\n");
@@ -246,22 +228,34 @@ void mvHostToDevice(T **ptr, int size) {
 // utility routine to copy dataset back to host
 //
 
-extern "C"
-void op_fetch_data(op_dat data) {
-  if (data.type == OP_FLOAT) 
-    cutilSafeCall(cudaMemcpy(data.fdat, data.fdat_d,
-                  sizeof(float)*data.set.size,
-                  cudaMemcpyDeviceToHost));
-  else if (data.type == OP_DOUBLE) 
-    cutilSafeCall(cudaMemcpy(data.ddat, data.ddat_d,
-                  sizeof(double)*data.set.size,
-                  cudaMemcpyDeviceToHost));
-  else if (data.type == OP_INT) 
-    cutilSafeCall(cudaMemcpy(data.idat, data.idat_d,
-                  sizeof(int)*data.set.size,
-                  cudaMemcpyDeviceToHost));
-
+extern void op_fetch_data(op_dat data) {
+  cutilSafeCall(cudaMemcpy(data.dat, data.dat_d, data.size*data.set.size,
+                cudaMemcpyDeviceToHost));
   cutilSafeCall(cudaThreadSynchronize());
+}
+
+
+//
+// utility routine to resize constant arrays, if necessary
+//
+
+void reallocConstArrays(int consts_bytes) {
+  if (OP_consts_bytes>0) {
+    free(OP_consts_h);
+    cutilSafeCall(cudaFree(OP_consts_d));
+  }
+  OP_consts_bytes = 4*consts_bytes;
+  OP_consts_h = (char *) malloc(OP_consts_bytes);
+  cutilSafeCall(cudaMalloc((void **)&OP_consts_d, OP_consts_bytes));
+}
+
+//
+// utility routine to move constant arrays, if necessary
+//
+
+void mvConstArraysToDevice(int consts_bytes) {
+  cutilSafeCall(cudaMemcpy(OP_consts_d, OP_consts_h, consts_bytes,
+                cudaMemcpyHostToDevice));
 }
 
 
@@ -269,9 +263,8 @@ void op_fetch_data(op_dat data) {
 // find existing execution plan, or construct a new one
 //
 
-extern "C"
-op_plan * plan(char const * name, op_set set, int nargs, op_dat *args, int *idxs, op_ptr *ptrs,
-               int *dims, op_datatype *typs, op_access *accs, int ninds, int *inds){
+extern op_plan * plan(char const * name, op_set set, int nargs, op_dat *args, int *idxs,
+      op_ptr *ptrs, int *dims, op_datatype *typs, op_access *accs, int ninds, int *inds){
 
   // first look for an existing execution plan
 
@@ -332,7 +325,7 @@ op_plan * plan(char const * name, op_set set, int nargs, op_dat *args, int *idxs
         printf("error: wrong datatype for arg %d in kernel \"%s\"\n",m,name);
         exit(1);
       }
-      if (args[m].dim != dims[m]) {
+      if (args[m].dim != dims[m] && args[m].set.size>0) {
         printf("error: wrong dimension for arg %d in kernel \"%s\"\n",m,name);
         exit(1);
       }

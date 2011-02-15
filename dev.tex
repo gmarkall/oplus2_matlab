@@ -1,0 +1,523 @@
+\documentclass[12pt]{article}
+
+\usepackage[colorlinks]{hyperref}
+
+\topmargin 0in
+\textheight 8.75in
+\textwidth  5.75in
+
+\parskip 5pt
+
+
+\usepackage{algorithm}
+\usepackage{algorithmic}
+
+%\newcommand{\theHalgorithm}{\arabic{algorithm}}
+
+\newenvironment{alg}[2]
+{
+\vspace{-0.5cm}
+\begin{flushleft}
+\begin{minipage}[c]{0.8\linewidth}
+\begin{algorithm}[H]
+\caption{#1}
+\label{#2}
+\begin{algorithmic}
+}
+{
+\end{algorithmic}
+\end{algorithm}
+\end{minipage}
+\end{flushleft}
+}
+
+
+
+\begin{document}
+
+\title{OP2 Developer's Guide}
+\author{Mike Giles}
+
+
+\maketitle
+
+\begin{abstract}
+This document explains some of the algorithms and implementation
+details inside OP2.  It is intended primarily for those who are
+developing OP2, and it is assumed they have already read the OP2 
+Notes document.  Some of the material in that may be transferred
+to this document in the future.
+
+Those who are only using OP2 should instead read the User's Manual.  
+\end{abstract}
+
+\section{Plan construction}
+
+This section deals with the algorithms in routine {\tt \bf plan} 
+within the file {\tt \bf op\_lib.cu}.  This is called whenever a
+parallel loop has at least one indirect dataset.
+
+\subsection{indirect datasets}
+
+``Sets'' are things like nodes or edges, a collection of abstract 
+``elements'' over which the parallel loops execute.
+``Datasets'' are the data associated with the sets, such as flow 
+variables or edge weights, which are the arguments to the parallel 
+loop functions.
+
+In a particular parallel loop, an ``indirect dataset'' is one which 
+is referenced indirectly using pointers.  Note that more than one 
+argument of the parallel loop can address the same indirect dataset.
+For example, in a typical CFD edge flux calculation, two arguments
+will correspond to the flow variables belonging to the nodes at either
+end of the edge, and another two arguments will correspond to the
+flux residuals at either end.
+
+The pre-processor {\tt \bf op2.m} identifies for each parallel loop
+the number of arguments {\tt nargs}, the number of indirect datasets
+{\tt ninds} and the mapping from arguments to indirect datasets 
+{\tt inds[]}.   The last of these has an entry for each argument; 
+if it is equal to $-1$ then the argument does not reference an 
+indirect dataset.
+All of this information is supplied as input to the routine 
+{\tt \bf plan}.
+
+\subsection{local renumbering}
+
+The execution plan divides the execution set into mini-partitions.
+These are referred to in the code as ``blocks'' because it's a 
+shorter word. This is a slightly different use of the word ``block'' 
+compared to CUDA thread blocks, but each plan block is worked on by 
+a single CUDA block so it's hopefully not too confusing.
+
+The plan blocks are sized so that the indirect datasets will fit 
+within the limited amount of shared memory available to each SM 
+(``streaming multiprocessor'', NVIDIA's preferred term to describe 
+each of the execution units in their GPUs).  The idea is that the
+indirect datasets are held within the shared memory to maximize data 
+reuse and avoid global memory traffic.  However this requires 
+renumbering of the pointers used to reference these datasets.
+
+%\newpage
+
+For each plan block, and each indirect dataset within it, the 
+algorithm for the renumbering is:
+\begin{itemize}
+\item
+build a list of all references to the dataset by simply appending 
+to a list
+\item
+sort the list and eliminate duplicates -- this then defines the 
+mapping from local indices to global indices
+\item
+use a large work array to invert the mapping, to give the mapping 
+from global indices to local indices (note: this is obviously only
+needed for the global indices occurring within that block)
+\item
+create a new copy of the pointer table which uses the new local 
+indices
+\end{itemize}
+
+Note that each indirect dataset ends up with its own duplicate 
+pointer table.  In some cases, the indirect datasets had the same
+original pointer tables; for example, in the CFD edge flux loop 
+described before the flow variables and flux residuals were 
+referenced using the same edge-node pointers.  In this case,
+we are currently wasting both memory and memory bandwidth by 
+duplicating the renumbered pointer tables.  This should be 
+eliminated in the future, by identifying such duplication, 
+de-allocating the duplicates, and changing the pointer to the 
+duplicate table to point to the primary table.
+
+\newpage
+
+\subsection{coloring}
+
+Coloring is used at two levels to avoid data conflicts.  The 
+elements within each block are colored, and then the blocks 
+themselves are colored.
+
+We start by describing the element coloring. The goal is 
+to assign a color to each element of that no two elements
+of the same color reference the same indirect dataset element.
+
+Conceptually, for each indirect dataset element we maintain
+a list of the colors of the elements which reference it. 
+Staring with this list initialised to be empty, the mathematical
+algorithm treats each set element in turn and performed the 
+following steps:
+\begin{itemize}
+\item 
+loop over all indirect datasets to find the lowest index 
+color which does not already reference it
+\item
+set this to be the color of the element
+\item
+loop again over all indirect datasets, adding this color
+to their list
+\end{itemize}
+
+The efficient implementation of this uses bit operations.
+The color list for each indirect dataset element is a 
+32-bit integer in a work array, with the $i^{th}$ bit set 
+to 1 if it is referenced by an element of color $i$.
+The first step is performed by using the bit-wise {\tt or}
+operation to combine the color lists into a variable called
+{\tt mask}, followed by using the {\tt ffs} instruction to 
+find the first zero bit.  The third step is also performed 
+by a bit-wise {\tt or} operation.
+
+Doing it in this way, we can process up to 32 colors in a 
+single pass.  This is probably sufficient for most applications, 
+but when it is not, the code loops back. i.e.~in the first pass,
+if the first step finds that all bits are already set, it doesn't 
+assign a color to the element, and goes on to the next element.
+Then at the end it goes back to process the elements which have 
+not yet been colored, with the color lists re-initialised to
+indicate that the indirect set elements are not referenced by 
+any of the ``new'' colors.  This outer loop (controlled by the 
+variable {\tt repeat}) is repeated until all elements have been 
+colored.
+
+The block coloring is performed inexactly the same way, except 
+that in the first and third steps the loop is over all indirect
+dataset elements referenced by all of the elements in the block, 
+not just by a single element.
+
+\newpage
+
+\subsection{block mapping}
+
+The final part of {\tt \bf plan} defines a block mapping.
+As illustrated in the bottom row of Fig.~\ref{fig:blkmap}, 
+{\tt \bf plan} constructs blocks and stores their data in 
+the order in which they are generated, so they are not 
+grouped by color.
+
+Rather than reordering the blocks to group them by color, 
+I instead construct the {\tt blkmap} mapping from a grouped 
+arrangement to the actual blocks.  This, together with the 
+number of blocks of each color, is all that is needed for 
+the later kernel execution.
+
+The algorithm to compute {\tt blkmap} is:
+\begin{itemize}
+\item
+compute the total number of blocks of each color
+\item
+do a cumulative summation to obtain the sum
+of all blocks of preceding colors
+\item
+processing each block in turn, add the number of preceding
+blocks of the same color to the cumulative sum of
+preceding colors, to obtain its position in the {\tt blkmap} 
+array
+\item
+finally, undo the cumulative summation operation to store 
+the number of blocks of each color
+\end{itemize}
+
+\begin{figure}
+\begin{center}
+{\setlength{\unitlength}{0.25in}\begin{picture}(20,5.5)
+
+\multiput(0,4)(1,0){20}{\framebox(1,1){}}
+\multiput(0,0)(1,0){20}{\framebox(1,1){}}
+
+\multiput( 0,4)(1,0){5}{\framebox(1,1){0}}
+\multiput( 5,4)(1,0){5}{\framebox(1,1){1}}
+\multiput(10,4)(1,0){5}{\framebox(1,1){2}}
+\multiput(15,4)(1,0){5}{\framebox(1,1){3}}
+
+\multiput( 0,0)(4,0){5}{\framebox(1,1){0}}
+\multiput( 1,0)(4,0){5}{\framebox(1,1){1}}
+\multiput( 2,0)(4,0){5}{\framebox(1,1){2}}
+\multiput( 3,0)(4,0){5}{\framebox(1,1){3}}
+
+\put(0.5,4){\vector(0,-1){3}}
+\multiput(4.5,1)(4,0){4}{\vector(0,-1){0}}
+\multiput(1.5,1)(4,0){3}{\vector(0,-1){0}}
+
+\put(3,1){\oval(3,2)[tr]}
+\put(4,1){\oval(9,3)[tr]}
+\put(5,1){\oval(15,4)[tr]}
+\put(6,1){\oval(21,5)[tr]}
+
+\put(3,4){\oval(3,4)[bl]}
+\put(4,4){\oval(3,3)[bl]}
+\put(5,4){\oval(3,2)[bl]}
+\put(6,4){\oval(3,1)[bl]}
+
+\put(3,1){\oval(3,1)[tl]}
+\put(3,4){\oval(5,5)[br]}
+
+\put(6,1){\oval(1,1)[tl]}
+\put(6,4){\oval(1,5)[br]}
+
+\put(8,1){\oval(3,1)[tr]}
+\put(8,4){\oval(1,5)[bl]}
+
+\put(-0.5,0.5){\makebox(0,0)[r]{blocks}}
+\put(-0.5,4.5){\makebox(0,0)[r]{blkmap}}
+
+\end{picture}}
+\end{center}
+
+\caption{Illustration of block mapping, with colors indicated as 0, 1, etc.}
+\label{fig:blkmap}
+\end{figure}
+
+
+\subsection{rest}
+
+The first part of {\tt \bf plan} checks whether there is an existing plan 
+to deal with this parallel loop, and if not it does some self-consistency 
+checking.
+
+The final part of {\tt \bf plan} computes the maximum amount of shared 
+memory required by any of the blocks, and copies the plan arrays over 
+onto the GPU, keeping the pointers in the {\tt plan} structure.
+
+
+\section{op2.m preprocessor}
+
+In this section I describe the code transformation performed by
+{\bf op2.m} and discuss various aspects of the code which is generated.
+
+\subsection{parsing the op\_par\_loop calls}
+
+As explained in Section 1.1, the pre-processor finds each 
+{\tt op\_par\_loop} call 
+and parses the arguments to identify the number of indirect 
+datasets which are used, and to define the {\tt inds[]} mapping from 
+the arguments to the indirect datasets.  It also identifies how
+each of the arguments is being used (or ``accessed'').
+
+If there are no indirect datasets the stub and kernel functions
+which are generated are very simple.  The descriptions in the next 
+two sections are for the more interesting case in which there is
+at least one indirect dataset.
+
+\subsection{the stub routine}
+
+The stub routine is the host routine which is called by the 
+user's main code.  It starts by calling {\tt \bf plan} to 
+generate the execution plan, passing into it the information
+about indirect datasets which has been determined by the parser.
+
+It then calls the kernel function to execute the plan.  This is 
+done within a loop over the different blocks colors, with an
+implicit synchronization between each color to avoid any data 
+conflicts
+
+One of the kernel parameters is the amount of dynamic shared 
+memory; this comes from the maximum requirement determined 
+by {\tt \bf plan}.
+
+
+\subsection{the CUDA kernel routine}
+
+Most of the code in {\bf op2.m} is for the generation of the CUDA 
+kernel routines.  To understand this it is probably best to look
+at an example of the generated code (e.g.~{\tt res\_kernel.cu})
+while reading this description.
+
+The key bits of code which are generated do the following:
+\begin{itemize}
+\item
+declare correct number and type of input arguments, including
+indirect datasets
+
+\item
+declare working variables, including local arrays which will probably
+be held in registers (or in L1 cache on Fermi)
+
+\item
+get block ID using {\tt blkmap} mapping discussed in Section 1.4
+
+\item
+set the dynamic shared memory pointers for indirect datasets; see 
+the CUDA Programmer's Guide for more info on this
+
+\item
+copy the read-only indirect datasets into shared memory, 
+and zero out the memory for those being incremented
+
+\item
+synchronize to ensure all shared memory data is ready before proceeding
+
+\item
+loop over all set elements in the block, and for each one
+ \begin{itemize}
+ \item copy the read-only indirect datasets from shared memory 
+       into local arrays 
+       (7/04/10: a new option, controlled by variable {\tt local},
+        instead calls the kernel function with a pointer to the 
+        shared memory)
+       and zero out the local arrays for those being incremented
+ \item also copy direct-mapped datasets into local arrays (again,
+       a new option just passes in the pointer)
+ \item execute the user function
+ \item use thread coloring to increment the shared memory data,
+       with thread synchronization after each color
+ \end{itemize}
+
+\item
+increment global storage of indirect datasets 
+
+\end{itemize}
+
+Note: it is likely that the compiler will put small local arrays of 
+known size into registers.  This is why users should specify
+{\tt op\_par\_loop} array dimensions as a literal constant.
+(Currently, {\bf op2.m} doesn't handle dimensions which are set at 
+run-time, but that capability should be added in the future.)
+
+There's one technical implementation detail which is very confusing.
+In the code, the number of elements in the block is {\tt nelems}.
+The variable {\tt nelems2} is equal to this value rounded up to the 
+nearest multiple of the number of threads in the thread block.
+This ensures that every thread goes through the main loop the same 
+number of times.  This is important because the thread synchronization 
+command {\tt \_\_syncthreads();} must be called by all threads.
+The {\tt if} test within the loop prevents execution for elements
+beyond the end of the block, and the default color is set to ensure
+no participation in the colored increment.
+If we switch to atomic updates, the thread synchronization will
+no longer be needed, and so the main loop can simply go up to
+{\tt nelems}.
+
+(Note: the generated code includes a number of pointers 
+which are probably held in registers, even though they have the 
+same value for all threads.  It might be better to explicitly put 
+them into shared memory, using thread 0 to set their value.)
+
+\newpage
+
+\subsection{the master kernels file}
+
+The master kernels file is a file which includes the kernel files for
+each parallel loop along with some header files and the declaration
+of the global constant variables which come from parsing any
+{\tt op\_decl\_const} calls.
+
+It has to be done this way in the current version of CUDA for the 
+constants to have global scope over all kernel files.
+
+\subsection{the new main file}
+
+The new main file generated by {\bf op2.m} has only minor changes 
+from the original source file:
+\begin{itemize}
+\item
+new header file and declaration of function prototypes
+
+\item
+new names for each {\tt op\_par\_loop} call
+\end{itemize}
+
+\newpage
+
+\section{CUDA 3.0 notes: 20/02/10}
+
+Having read the new CUDA 3.0 Programmer's Guide and the guide on
+Tuning CUDA Applications for Fermi, here I make a few notes which 
+I should read over again in the future.
+
+\begin{itemize}
+\item
+should think about turning off L1 caching of global data so L1 cache is 
+preserved for register spilling of local variables
+
+\item
+should use the {\tt restrict} qualifier to enable compiler optimization
+
+\item
+new LDU instruction will be good for local constants; must make sure to use
+{\tt const} qualifier
+
+\item
+use 48kB shared memory for kernels with indrect datasets, and
+48kB L1 cache for those without
+
+\item
+L2 cache has the equivalent of 48kB per SM, as much as the maximum 
+shared memory, so maybe it would be good to use it?  But on the other 
+hand, the effective size is smaller (as it also stores data which is 
+not wanted) and we're unlikely to be able to achieve a perfect 
+allocation of data to shared memory and cached global memory, so 
+maybe it's not worth worrying about?
+
+\item
+no point in using texture mapping?
+
+\item
+consider the compiler options 
+{\tt -ftz=true -prec-div=false -prec-sqrt=false} 
+for improved performance
+
+\end{itemize}
+
+
+\section{Adding new datatypes: 7/04/10}
+
+I have simplified a number of files to make it easier in the future to
+add new basic datatypes such as {\tt long}, {\tt short} and {\tt uint}
+in addition to {\tt double}, {\tt float} and {\tt int}.
+I think this now requires changes in just the following places:
+\begin{itemize}
+\item
+In {\bf op2.m}, update the bit near the top where the datatype constants 
+are declared, and the three lists {\tt OP\_typs}, {\tt OP\_typs\_labels},
+and {\tt OP\_typs\_CPP} are formed.  Note that it is very important to 
+make sure the datatypes are ordered in decreasing size to ensure correct
+byte alignment.
+
+\item
+In {\bf op\_datatypes.h}, update the list {\tt op\_datatypes} and the 
+{\tt type\_error} function prototypes for type checking.
+
+\item
+In {\bf op\_seq.cpp}, update the {\tt type\_error} functions for type checking.
+\end{itemize}
+
+
+\newpage
+
+\section{To do list}
+
+\begin{itemize}
+\item
+Add global reduction (min/max/sum) functionality to parallel loops.
+
+\item
+Set block sizes to maximum which will fit in in worst case
+(and write up why I think it's a good default choice)
+
+\item
+Renumber sets and pointers to improve data reuse.
+
+\item
+For indirect datasets, maybe use only first warp for read/write to 
+improve caching?  Or change the implementation so that each element 
+of an dataset for a particular set element is loaded by a different 
+thread in the warp (instead of the same thread as at present)?
+
+\item
+For direct datasets, check that local arrays map correctly to L1 
+caches, giving coalescence (and zero bank conflicts) when all threads 
+are accessing the same corresponding element of their local array. 
+Otherwise, could consider mapping to shared memory, at least for 
+loops with no indirect datasets.
+
+\item
+Add capability to handle dataset dimensions which are not known
+until run-time.
+
+\item
+Try storing thread-invariant data (such as array pointers)
+in shared memory, to avoid using precious registers.
+\end{itemize}
+
+\end{document}
+
