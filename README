@@ -1,0 +1,64 @@
+
+
+jac.cpp          -- example program for Jacobi iteration to solve Laplace equation.
+
+res.h            -- kernel function
+
+update.h         -- kernel function
+
+---------------------------------------------------------------------------
+
+op_seq.h         -- header for single-thread CPU execution
+
+op_seq.c         -- routines for single-thread CPU execution
+
+---------------------------------------------------------------------------
+
+Makefile         -- Makefile, based on standard CUDA SDK template
+                    (may need to modify ROOTDIR specification)
+
+op2.m            -- prototype pre-processor, written in MATLAB
+
+jac_op.cpp       -- main program for CUDA execution, created by op2.m
+
+res_kernel.cu    -- kernel function for CUDA execution, created by op2.m
+
+update_kernel.cu -- kernel function for CUDA execution, created by op2.m
+
+---------------------------------------------------------------------------
+
+op_lib.cu        -- OP routines library file for CUDA execution
+
+---------------------------------------------------------------------------
+
+op_datatypes.h   -- header used by almost all files
+
+
+
+---------------------------------------------------------------------------
+
+The sequential CPU version is built by the command:
+
+g++ -o jac_seq jac.cpp op_seq.c
+
+
+The CUDA GPU version is built by first executing the command:
+
+op2("jac")
+
+in MATLAB, to produce the files
+
+jac_op.cpp
+res_kernel.cu
+update_kernel.cu
+
+and then using the command:
+
+make dbg=1
+
+or
+
+make dbg=1 emu=1
+
+to produce the debug or emulation executables.
+

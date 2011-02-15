@@ -1,0 +1,1205 @@
+\documentclass[12pt]{article}
+
+\usepackage[colorlinks]{hyperref}
+
+\topmargin 0in
+\textheight 8.75in
+\textwidth  5.75in
+
+\parskip 5pt
+
+\newenvironment{routine}[2]
+{\vspace{.25in}{\noindent\bf\hspace{0pt} #1}{\\ \noindent #2}
+\begin{list}{}{
+\renewcommand{\makelabel}[1]{{\bf ##1} \hfil} 
+\itemsep 0pt plus 1pt minus 1pt
+\leftmargin  1.2in
+\rightmargin 0.0in
+\labelwidth  1.1in
+\itemindent  0.0in
+\listparindent  0.0in
+\labelsep    0.05in}
+}{\end{list}}
+%
+
+\begin{document}
+
+\title{OPlus2 for many-core platforms}
+\author{Mike~Giles}
+%\date{}
+
+\maketitle
+
+\begin{abstract}
+This document lays out the plans for a new open source OPlus2 
+library for unstructured grid parallel execution on NVIDIA GPUs
+and other many-core hardware platforms.
+
+This document will be all-encompassing to begin with.  Later, 
+it will make sense to split it into different documents 
+(e.g. Users Guide; Developers Guide; Algorithms for 
+partitioning, colouring and halo construction) but for now 
+I think it is simplest to have it all together in one place.
+\end{abstract}
+
+
+\section{Motivation}
+
+The original OPlus library was developed more than 10 years ago
+for distributed memory parallel execution of algorithms based
+on unstructured grids. It was originally developed in PVM by
+Paul Crumpton and myself, but more recently Nick Hills ported
+it to MPI and made numerous internal changes (such as parallel
+partitioning) which greatly improved its performance.
+
+The strengths and weaknesses of the existing OPlus are discussed 
+below, but the main motivation for a new version is the emergence 
+of multicore architectures.  Not only are Intel, AMD, and others
+all pursuing a multicore CPU strategy, with up to 6 cores today 
+but maybe 16 cores (and up to 64 threads?) within a few years, 
+but also NVIDIA and ATI (now part of AMD) have graphics cards 
+with huge numbers of cores.  The current NVIDIA GTX280 GPU, 
+for example, has 240 cores, each of which is as capable as an 
+Intel Core 2 Duo core in single precision.
+
+The objective of OPlus2 is to provide a library which will enable
+efficient execution on these new architectures at the lowest 
+level, while retaining the ability to perform distributed memory 
+parallelisation on the highest level.
+
+
+\newpage
+
+\section{OPlus}
+
+After more than 10 years of use, it is a good time to review the 
+strengths and weaknesses of the existing OPlus library.
+
+Strengths:
+\begin{itemize}
+\item
+general distributed set/pointer representation has worked well
+\item
+single application source code leading to both sequential and 
+parallel executables
+\item
+fairly clean definition of parallel loops
+\item
+good scalability on big problems with up to $10^8$ grid nodes
+on 100+ processors (partly due to the original design 
+but largely due to Nick Hills' improvements)
+\item
+works well under both Unix/Linux and Windows operating systems
+\end{itemize}
+
+Weaknesses:
+\begin{itemize}
+\item
+file I/O is poor, not parallel
+\item
+{\tt OP\_ACCESS} declaration of data dependencies in parallel 
+loops is tedious, and errors can be hard to debug
+\item
+only FORTRAN is supported, and it is only used by the HYDRA CFD code
+\end{itemize}
+
+
+The natural goal with OPlus2 is to retain the strengths, address the 
+weaknesses, and add the capability to efficiently exploit new many-core 
+architectures.
+
+\subsection*{References}
+
+1) P.I. Crumpton and M.B. Giles. `Multigrid aircraft computations using 
+the OPlus parallel library'. in  Parallel Computational Fluid Dynamics: 
+Implementations and Results Using Parallel Computers, 339-346. A. Ecer, 
+J. Periaux, N. Satofuka, and S. Taylor, editors, North-Holland, 1996.  
+\href{http://people.maths.ox.ac.uk/~gilesm/files/para_cfd95.pdf}{(PDF)}
+
+2) D.A. Burgess, P.I. Crumpton, and M.B. Giles. `A parallel framework 
+for unstructured grid solvers'. In Computational Fluid Dynamics '94: 
+Proceedings of the Second European Computational Fluid Dynamics 
+Conference, pages 391-396. S. Wagner, E.H. Hirschel, J. Periaux, and 
+R. Piva, editors. John Wiley and Sons, 1994.  
+\href{http://people.maths.ox.ac.uk/~gilesm/files/NA-95-20.pdf}{(PDF)}
+
+\newpage
+
+\section{Key assumptions and requirements}
+
+The key assumptions are the same as for OPlus: that the 
+application involves a number of static sets (e.g.~nodes, edges, 
+faces, cells) connected by pointers, and each step in the algorithm 
+involves an operation applied to all elements of a set (with at
+most one level of pointer indirection to data associated with another
+set) and the result is independent of the order in which the elements 
+are processed (e.g.~Jacobi iteration is allowed but not the standard 
+Gauss-Seidel).
+
+The requirements are:
+\begin{itemize}
+\item
+single application source code leading to efficient execution on 
+\begin{itemize}
+\item
+multicore CPUs using OpenMP and/or SSE/AVX instructions
+\item
+GPUs using CUDA or OpenCL
+\end{itemize}
+
+\item
+very good scalability up to very large problem sizes using MPI 
+to exploit multiple GPUs and/or multicore CPUs within a cluster
+
+\item 
+support for both C/C++ and FORTRAN
+
+\item
+support for Unix/Linux and Windows operating systems
+
+\item
+options for extensive error-checking
+
+\item
+compatibility with HYDRA's use of automatic differentiation 
+for generating linear and adjoint code
+
+\end{itemize}
+
+With OPlus, the user code was compiled and then linked to either a 
+sequential single-thread library or a parallel library (based on MPI
+message passing).  There was no use of program transformation, partly 
+because it wasn't needed and partly because we had no knowledge of 
+such tools.
+
+With OPlus2, the efficient support of multicore CPUs as well as GPUs 
+will require the use of program transformation tools, with the expertise 
+being supplied by Paul Kelly's group at Imperial College.
+However, I think it is still desirable to have a non-efficient single 
+thread CPU implementation which does not require program transformation; 
+this can be used for application development and debugging and should 
+include the extensive error-checking tools mentioned above.
+
+
+\newpage
+
+\section{Outline workplan}
+
+The development of OPlus2 will proceed in two phases, with perhaps some 
+overlap between the two.
+\begin{itemize}
+\item
+Phase 1 will develop OPlus2 for use on a single GPU or a single 
+shared-memory system with one or more multicore CPUs (using OpenMP and 
+SSE/AVX instructions).
+\item
+Phase 2 will extend this by adding on top an MPI layer which is very
+similar to the existing OPlus implementation.  This will enable
+distributed-memory computations on a cluster of nodes, each with 
+one or more GPUs and/or multi-core CPUs.
+\end{itemize}
+
+The partitioning and parallelisation strategies required by the two
+phases will be similar in some ways, but will also be different because
+of differences in key hardware aspects.  For example, typical cluster
+compute nodes have GBs of shared memory, whereas each ``multiprocessor'' 
+in an NVIDIA GPU currently has only 16kB of shared memory.  As explained 
+later, this leads to a different approach in handling data dependency 
+constraints.
+
+
+The phase 1 workplan is as follows (IC = Imperial College post-doc):
+\begin{itemize}
+\item
+single-thread CPU version of test code written in C,
+including non-efficient CPU library (Mike, Sept 09)
+
+\item
+CUDA version of test code written in C (Mike, Oct/Nov 09)
+
+\item
+document describing program transformation requirements for 
+C $\rightarrow$ CUDA (Mike/Paul, Dec 09)
+
+\item
+single-thread CPU version of test code written in FORTRAN,
+including non-efficient CPU library (Mike, Jan 10)
+
+\item
+C and FORTRAN versions of 2D airfoil test code (Mike, Mar 10)
+
+\item
+program transformation for C $\rightarrow$ CUDA (IC, June 10)
+
+\item
+OpenMP/SSE version of original test code (Mike, June 10)
+
+\item
+program transformation for FORTRAN $\rightarrow$ CUDA 
+(IC, Sept 10)
+
+\item
+test program transformation tools on 2D airfoil test code 
+(Mike, Sept 10)
+
+\item
+program transformation for C $\rightarrow$ OpenMP/SSE parallel 
+loops (IC, Dec 10)
+
+\item
+OpenCL version of original test code (Mike, Dec 10)
+
+\item
+``lint''-style syntactic analysis and error-checking for 
+parallel loop kernels (IC, Mar 11)
+
+\item
+program transformation tool to aid porting of HYDRA OPlus
+calls to OPlus2 (IC, June 11)
+
+\item
+begin phase 2 (Mike, July--Sept 11)
+
+\item
+program transformation for C, FORTRAN $\rightarrow$ OpenCL 
+(IC, Sept 11)
+\end{itemize}
+
+
+%This timetable gives Paul's postdoc 3 months (Jan-Mar 09) to 
+%familiarise themselves with OPlus and Rose.  Also, the OpenCL
+%tasks could be tackled before OpenMP/SSE, depending on the
+%relative priorities set by RR.
+
+At the end of the first phase we will have a viable library 
+and program transformation tools for execution on a single host 
+with one or more NVIDIA GPUs.  
+
+The porting of HYDRA will overlap with the final parts of phase 1 
+and the early parts of phase 2, with the three main steps being:
+\begin{itemize}
+\item
+convert remaining parallel loops into kernel format
+(this can be done at any time, independent of work on phase 1);
+
+\item
+convert OPlus parallel loops into OPlus2 parallel loops,
+aided by the tool developed by Imperial;
+
+\item
+convert file I/O to the new parallel file I/O agreed for phase 2.
+\end{itemize}
+
+\noindent
+The timing for phase 2 is a bit uncertain, but the key steps 
+(some of which can be overlapped) are:
+\begin{itemize}
+\item
+review existing OPlus algorithms and code (Mike, 3 months?)
+
+\item
+review HDF5 and MPI I/O and design OPlus2 file I/O (Leigh, 3 months?)
+
+\item
+review key implementation issues and concerns (Nick, 3 months?)
+
+\item
+implement new file I/O (1 month?)
+
+\item
+implement phase 2 data partitioning and halo construction 
+(3 months?)
+
+\item
+test on a conventional cluster (1 month?)
+
+\item
+optimise GPU partitioning to overlap MPI communication with GPU 
+computation (1 month?)
+
+\item
+test on a GPU cluster (1 month?)
+
+\item
+test HYDRA on a GPU cluster (1 month?)
+
+\item
+develop performance monitoring tools to guide further development 
+(1 month?)
+\end{itemize}
+The work in most of these items will be done jointly by the 
+Imperial College postdoc and myself.
+
+\newpage
+
+\section{Data access and dependency conflicts}
+
+Suppose that one wants to solve the sparse system of linear equations
+\[
+A\, u + r = 0
+\]
+using Jacobi iteration with
+\[
+u^{n+1} = u^n + \left( A\, u^n + r\right).
+\]
+$A$ can be stored in a sparse edge-based format 
+\verb!A,p1,p2! in which each non-zero element has a corresponding ``edge'' 
+\verb!e! with
+\verb!A[e]!$\equiv A_{i,j}$, 
+\verb!p1[e]!$\equiv i$, 
+\verb!p2[e]!$\equiv j$. 
+
+Using this, the key steps in the algorithm can be implemented using the C
+routines in Figure \ref{fig1}.  The access patterns for the arrays can be 
+classified as
+\begin{itemize}
+\item ``r''  read-only
+\item ``w''  write-only
+\item ``b''  both read and write
+\item ``i''  increment  (a special case of read/write)
+\end{itemize}
+In \verb!res!, the access for \verb!A, u, du! is ``r'', ``r'' and ``i'', 
+respectively, while
+in \verb!update!, the access for \verb!u, du, r! is ``i'', ``b'' and ``r'', 
+respectively.
+
+
+\begin{figure}[b!]
+\begin{verbatim}
+
+
+void res(int ne, int *p1, int *p2, float *A, float *u, float *du) {
+   for (int e=0; e<nedge; e++)
+      du[p1[e]] += A[e] * u[p2[e]];
+}
+
+void update(int nn, float *u, float *du, float *r) {
+   for (int n=0; n<nn; n++) {
+      u[n] += du[n] + r[n];
+      du[n] = 0.0f;
+   }
+}
+\end{verbatim}
+\caption{C routines for simple Jacobi iteration}
+\label{fig1}
+\end{figure}
+
+
+It is clear from looking at these routines that it makes no difference the 
+order in which the edges are processed in \verb!res!, or the nodes are processed
+in \verb!update!, and so these conform to the requirements for OPlus 
+parallelisation.  The one potential problem is a potential data dependency
+conflict in incrementing the array \verb!du! in \verb!res!.  Because of the
+indirect addressing using \verb!p1!, it is possible that different edges may 
+try to update the same element of \verb!du! ``at the same time''.  Unless the 
+hardware supports atomic updates for floating point variables, this could lead
+to incorrect results.
+
+In OPlus, the parallelisation partitions the data so that each partition 
+``owns'' some of the edges and some of the nodes.  Each partition ``executes''
+the edges and nodes which affect the data it ``owns''.  Near partition 
+boundaries, this may require one partition to execute an edge belonging to a
+different partition.  In addition, if the execution of the edge requires the
+use of data belonging to another partition, a copy of that data has to be made;
+this is referred to as ``halo'' data in the distributed-computing community.
+
+Within each partition, a single thread sequential execution model is used and 
+so there is problem with the data dependency issue.  However, in more complex
+applications where executing an edge may involve updates to more than one node, 
+there is a redundancy/duplication issue, since the same edge may be executed 
+by more than one partition. This is acceptable provided the partition sizes 
+are large enough so that the number of halo edges and nodes is relatively small.
+
+In OPlus2, the same strategy will be used in phase 2 for distributed computing
+across multiple GPUs, but in phase 1 the same approach will not be acceptable
+because the partition sizes to fit into each of the multiprocessors within a 
+single GPU are so small that there will be a significant level of duplication.
+We will instead use an alternative partition ``colouring'' strategy which
+is described in a later section.
+
+\newpage
+
+\section{CUDA parallelisation strategy}
+
+
+The first step is to reorder/renumber all sets to improve data locality,
+so that neighbouring nodes or edges have indices, and therefore memory 
+locations, which are close to each other.   There are lots of ways in which 
+this might be done, but one simple effective way which we have used in the past 
+is recursive coordinate bisection.  For a 3D dataset, one would first bisect
+each set in the $x$-direction, then the $y$-direction, then the $z$-direction, 
+and then repeat the sequence recursively to build up a binary tree whose leaves 
+are then numbered sequentially.
+
+The idea then is to parallelise loop operations by using blocks 
+(mini-partitions) which are small enough to fit into the limited shared 
+memory on each multiprocessor within an NVIDIA GPU.  For the edge 
+operations in \verb!res! in Figure \ref{fig1}, the operations for 
+each block would be
+\begin{itemize}
+\item
+load in required values of \verb!u! into shared memory
+\item
+calculate increment
+\item
+add increment to shared memory array \verb!inc!
+\item
+add increment \verb!inc! to array \verb!du! in main graphics memory
+\end{itemize}
+
+The first step of loading \verb!u! into shared memory is performed because
+the same values of \verb!u! are likely to be used by several edges, and
+so doing this minimises the total data transfer requirements from the main 
+graphics memory.
+  
+The second step is simple, and can be performed in parallel by all threads 
+in the block (with just one edge per thread?) without any data conflicts.  
+The potential data conflict is in the third step when the increments are 
+combined.  This will be avoided by ``colouring'' the threads so that no 
+two threads update the same variable at the same time.  This is a 
+well-established technique for avoiding data conflicts in vector code.
+
+(To minimise the number of colours within each thread ``warp'', it may
+be best to reorder the threads within each block.  This would scramble 
+up the identity mapping, used here for the array \verb!A!, so there would 
+be some cost but I think there would be savings overall.)
+
+The fourth step adds the combined increments to the data in the main 
+graphics memory.  Here again there is a potential data conflict problem 
+due to different blocks trying to update the same data.  This will be 
+avoided by colouring the blocks so that no two blocks of the same colour 
+update the same data.  The blocks would be executed one colour at a time, 
+with a synchronisation between each colour.
+
+
+\subsection{Execution plans}
+
+In standard MPI computations, the partitioning is done once and the same
+partitioning is used for stage of the computation.  This is because 
+the cost of re-partitioning the data is excessive.
+
+In contrast, between each stage of the computation on the GPU the data 
+resides in the main graphics memory, and so the blocking for each loop 
+calculation can be considered independently of the requirements of the
+other parallel loops.
+
+Based on ideas from FFTW, I plan to construct for each parallel loop
+a ``plan'', which is a customised blocking of the execution on the GPU 
+for that loop, making optimum use of the local shared memory on each 
+multiprocessor considering in detail the memory requirements of the loop 
+computation.  
+
+The plan will also include the colouring of the blocks, and colouring 
+of the threads within a block, to avoid data conflicts.  A typical CFD 
+calculation may need 50-200 plans each of which may be executed more 
+than once during a single timestep or multigrid iteration.
+
+\subsection{Some rough numbers}
+
+A big HYDRA CFD calculation will use almost all of the 4GB 
+on a Tesla card. Given that the local shared-memory size is 16kB, 
+this suggests that the data intensive parallel loops will have 
+over 100,000 blocks. 
+\footnote{On the one hand, this will be an underestimate 
+since some of the data will be used by more than one block, 
+but on the other hand it will be an overestimate 
+because not all of the data will be needed for just one loop.}
+
+10 colours might be needed to avoid data conflicts, suggesting 
+up to 10,000 blocks per colour.  Given this number it doesn't 
+matter if there are variations in the amount of compute per 
+block, the important thing is to make sure each block uses as 
+much shared memory as possible.
+
+HYDRA needs up to 40 floats per grid node.  16kB corresponds
+to 4000 floats which is equivalent to 100 nodes, which is 
+roughly $5^3$.  This should be big enough to get a fair degree 
+of re-use of nodal data within the block, maybe 50\% of
+maximum.  The block may have 400 edges, with maybe 40 per 
+colour so we need to use colour-locked increments, with thread 
+synchronisation in between colours.
+
+%There is no re-use of pointers, so no sense in loading pointers 
+%into shared-memory? Except that by doing so we can take the 
+%pointers out of order to minimise the number of colour changes 
+%within a warp.
+
+
+
+\newpage
+
+\section{OP2 execution}
+
+
+An OPlus2 calculation has three stages of execution, each with a 
+number of steps.  In the description below, the steps in parentheses 
+are the extra ones needed for the phase 2 MPI parallelisation:
+\begin{enumerate}
+\item
+initialisation
+ \begin{itemize}
+ \item
+ declare sets, pointers and datasets
+ \item
+ (partition sets and renumber pointers)
+ \item
+ (compute halos)
+ \item
+ (load and distribute datasets)
+ \item
+ renumber elements and pointers
+ \item
+ initialise the GPU, copy constants to its constant memory 
+ and copy datasets to its global memory
+ \end{itemize}
+
+\item
+parallel computation
+ \begin{itemize}
+ \item
+ (exchange halo data as necessary)
+ \item
+ build new CUDA execution ``plan'', if necessary 
+ \item
+ execute ``plan''
+ \end{itemize}
+
+
+\item
+termination
+ \begin{itemize}
+ \item
+ copy datasets back to host
+ \item
+ terminate CUDA operations on the GPU
+ \item
+ (write datasets to disk)
+ \end{itemize}
+\end{enumerate}
+
+
+\newpage
+
+\section{Parallel loop syntax}
+
+My initial idea is that the parallel loop should have the following syntax:
+
+\begin{routine} {op\_par\_loop(kernel, set, label, \\
+\hspace*{1.4in}  arg1, ptr1, index1, type1, dim1, access1, \\
+\hspace*{1.4in}  arg2, ptr2, index2, type2, dim2, access2, \\ 
+\hspace*{1.4in}  \ldots,\ \ \ \ldots,\ \ \ \ldots,\ \ \ \ldots,\ \ \ \ldots,\  \ \ \ldots,  \\
+\hspace*{1.4in}  argN, ptrN, indexN, typeN, dimN, accessN)}
+{}%{This is a routine returning no value.}
+
+\item[kernel]   name of the kernel function to be applied to each element
+\item[label]    a label string for diagnostic purposes
+\item[set]      set whose elements are to be processed 
+\item[arg1]     first dataset
+\item[ptr1]     pointer from main set to set on which {\bf arg1} is defined
+\item[index1]   index of pointer to access {\bf arg1}
+\item[type1]    type of dataset (e.g. ``float'', ``int'')
+\item[dim11]    dimension of dataset
+\item[access1]  information on how {\bf arg1} is used within kernel\\
+                ``r'' = read-only\\
+                ``w'' = write-only\\
+                ``b'' = both read + write\\
+                ``i'' = increment
+\end{routine}
+
+
+Here {\bf kernel} is a routine which process a single element in {\bf set}.
+This will get converted by a pre-processor into a routine called by the 
+CUDA kernel function.  The pre-processor will also take the specification 
+of the arguments and turn this into the CUDA kernel function which loads 
+in the data from the device main memory into the shared storage, then calls 
+the converted {\bf kernel} for each element, then writes back the updated 
+data to the device main memory.
+
+Parallel loops of the above form will form the main bulk of the application 
+code, after an initialisation stage in which the sets, the pointers between 
+the sets and the data associated with the sets are all declared.
+
+This syntax combines the functions of {\bf OP\_PAR\_LOOP} and 
+{\bf OP\_ACCESS} in the current OPlus, and the specification of the 
+single element {\bf kernel} function fits in well with the use of
+automatic differentiation in HYDRA.
+
+There is a fair amount of redundant information here, but the implementation
+will check it is consistent; see discussion in Blog section.
+
+
+\newpage
+
+There are also routines to declare sets, pointers and datasets:
+
+\begin{routine} {op\_decl\_set(elems, dim, coords, set, label, mapping, maplabel)}
+{}%
+\item[elems]    number of elements in the set
+\item[dim]      dimension of the coordinate data (for renumbering)
+\item[coords]   coordinate data
+\item[set]      structure containing set info (set by routine)
+\item[label]    a label string for diagnostic purposes
+\item[mapping]  an identity mapping (needed for some parallel loops)
+\item[maplabel] a label for the identity mapping
+\end{routine}
+
+\begin{routine} {op\_decl\_ptr(from\_set, to\_set, dim, ptrdata, ptr, label)}
+{}%
+\item[from\_set] set from which it points
+\item[to\_set]   set to which it points
+\item[dim]       number of pointers per element
+\item[ptrdata]   input pointer data
+\item[ptr]       structure containing ptr info (set by routine)
+\item[label]     a label string for diagnostic purposes
+\end{routine}
+
+\begin{routine} {op\_decl\_dat(set, dim, type, data, dat, label)}
+{}%
+\item[set]       set with which the data is associated
+\item[dim]       amount of data per element
+\item[type]      type of data (e.g. ``float'', ``int'')
+\item[data]      input data array
+\item[ptr]       structure containing data info (set by routine)
+\item[label]     a label string for diagnostic purposes
+\end{routine}
+
+\section{Execution plan construction}
+
+New notes: 1/11/09
+
+I've almost finished the coding for the execution plan construction so 
+it's time to make some notes, mainly for my own benefit but also to help
+anyone reading the code.
+
+A call to {\bf op\_par\_loop} leads to a call to {\bf plan} which 
+looks to see if there is an existing plan.  If there is, it returns 
+its ID, otherwise it constructs a new plan and returns its ID.
+There is a match to an existing plan if all of the arguments match.  
+Note that this needs to be a run-time match; it is not something that 
+can be decided at compile-time since the same call in the code can be
+used for different levels within a multigrid solver, and each level 
+requires its own execution plan.
+
+In constructing a new plan, the first step is to see if the loop
+involves any indirection.  If it does not, the execution plan and the
+corresponding CUDA code is very simple.
+
+When there is indirection, the construction of the plan involves the 
+following steps:
+\begin{itemize}
+\item
+identification of the datasets involving indirection, and the 
+``increment'' subset of these which involve an {\bf OP\_INC} access 
+producing a potential data conflict which requires coloring
+
+\item
+for each thread block:
+  \begin{itemize}
+  \item for each indirection dataset:
+    \begin{itemize}
+    \item assemble list of elements pointed to
+    \item sort into ascending order and eleminate duplicates
+    \item store away for use by CUDA routine
+    \item re-number pointers accordingly and store them
+    \end{itemize}
+  \item color the threads (and perhaps re-order threads
+        to group by color to minimise warp divergence?)
+  \end{itemize}
+
+\item
+color the blocks (and perhaps re-order the blocks to group 
+by color?) 
+\end{itemize}
+
+\newpage
+
+\subsection{Coloring}
+
+Coloring is potentially time-consuming, so an important ``trick'' here 
+is to assign 32 colors at a time using bit operations.  I explain it here 
+for thread coloring but the same approach is also used for block coloring.
+
+The key to the implementation is an array with a single 32-bit unsigned 
+integer for each indirectly addressed increment set element.  This is 
+initialised to zero and then, as colors are assigned, the corresponding 
+bits will be set to indicate the color of the elements accessing that 
+indirectly addressed element.
+
+The algorithm proceeds as follows:
+\begin{itemize}
+\item
+loop over all elements which have not yet been colored, and for each one
+  \begin{itemize}
+  \item
+  initialise mask variable to zero
+  \item
+  loop over all indirect increment set elements and ``add'' to the mask
+  using the logical OR operation
+  \item
+  find first bit of mask which is \underline{not} set; this is the color 
+  of the new element (provided there is a bit not set)
+  \item
+  reset the mask to have the appropriate color bit set
+  \item
+  loop back over all indirect increment set elements ``adding'' the mask
+  usign the logical OR operation to set the appropriate the  color bit
+  \end{itemize}
+\item
+if 32 colors weren't sufficient, reset the work array to zero and repeat 
+the whole procedure for those which have not yet been colored
+\end{itemize}
+
+
+In most cases I expect that 32 colors will be sufficient, and so a 
+single pass through each thread block will be all that is required 
+for the thread coloring, and then a single pass through the entire 
+set for the block coloring.
+
+\subsection{Different access type for same dataset}
+
+What should be done if different argument involve the same dataset 
+with different access types?
+
+\begin{itemize}
+\item
+treat each access type as giving a different indirect dataset 
+for the purposes of the execution plan construction
+\item
+requires there to be \underline{no} data conflict between these
+different sets; must be explained carefully in documentation,
+and checked in code which validates correct usage
+\end{itemize}
+
+
+\newpage
+
+\section{Blog}
+
+Here I make various quick notes, partly for my own benefit so that I 
+can remember why I did something, or to record things for the future, 
+and partly to inform others about the reasons for my actions.
+
+The thoughts are not carefully organised or well explained -- please 
+ask questions if you think something looks interesting but unclear.
+
+\begin{itemize}
+
+\item
+In designing the parallel loop syntax I wanted something simple and 
+clean, without lots of redundant information.  This is how I designed
+the initial CPU implementation, but the more I think about it and 
+how the source code transformation will turn it into optimised code, 
+the more I think it's better to go with something closer to the original
+OPlus syntax with redundant information.  This will enable compile-time 
+optimisations (e.g. unrolling of loops copying data into local 
+shared-memory arrays), and the redundant info can be checked 
+for consistency.
+
+\item
+I'm not sure how best to handle different datatypes.  My initial 
+implementation supported only datasets composed of floats.  Rather than 
+having different dataset types for each basic type, I think it may be 
+best to change the struct to use void pointers and store the underlying 
+datatype. Alternatively, can a C++ guru construct a parameterised class?
+If I use void pointers, then I should do run-time type-checking.
+
+\item
+I'm going to have to be careful about the total size of all of the 
+execution plans, but I think they won't be too large compared to the 
+datasets.
+
+\item
+The optimal block sizes may be hard to determine a priori.  It may make
+sense to use dynamic optimisation, adjusting them at run-time to reduce
+execution time.
+
+\item
+When pointers are not used, data can be loaded straight into registers,
+not shared-memory.
+
+\item
+When pointers are used, it's best to use shared-memory rather than relying 
+on caching because with shared-memory only need to store the data which 
+is needed.
+
+%\item
+%I don't know whether it will be worth using texture memory for read-only 
+%accesses on the new GPUs -- possibly not because of the long latency even 
+%when the data is in the texture cache.
+
+\item
+In the future, the labels for various routines can be handled automatically 
+either through using macros or through the source code transformation.
+
+\item
+There are alternatives to the thread-colouring approach.  One is to use 
+atomic locks, and another is to store the increments in shared-memory 
+without combination then use one thread for each output to combine things
+sequentially.  Ideally, it would be good to try each of these alternatives.
+
+\item
+Coping with a variable number of parameters might be painful.  C++ has 
+{\tt va\_list} to handle a variable number of inputs, but unlike MATLAB 
+I think there's no support for calling a function with a variable number 
+of parameters.  FORTRAN can't do either which is why OPlus had a separate 
+call for each argument, which coincidentally is similar to what happens in 
+OpenCL.  Maybe I should stick with that approach for FORTRAN, and for C++ 
+use a template with the number of parameters being specified as a template 
+parameter?
+
+\item
+The {\tt m} loops in {\tt op\_par\_loop} would be unrolled by the source code 
+transformation, and lots of code eliminated by evaluating many of the {\tt if} 
+tests.  The NVIDIA compiler would then automatically unroll the little 
+{\tt p} loops in most cases.
+
+
+
+\newpage
+
+\section{Preprocessor}
+
+I have developed a prototype preprocessor in MATLAB.  This parses 
+the input source code, looking for all {\tt op\_par\_loop} calls.
+It then parses their arguments and based on this it generates a CUDA
+kernel routine which will execute of the GPU, and a host stub code 
+which will select the execution plan and call the kernel routine.
+Each of these aspects will now be described in some detail.
+
+\subsection{Argument parsing}
+
+The arguments are parsed to identify which datasets are addressed 
+indirectly, using pointers, and which are addressed directly.
+
+Those which are addressed indirectly are further analysed to see
+if the same indirect dataset is used for more than one argument
+with the same access type (e.g.~read-only, or increment) but
+perhaps a different pointer (or a different index within a 
+vector pointer table).  For example, in the HYDRA CFD code, 
+a flux calculation for a single edge has 2 arguments which 
+correspond to the flow variables at either end of the edge. 
+It is the same flow variable dataset in each case, but the 
+first edge-node pointer index is used for the first node, and 
+the second is used for the second node.
+
+Identifying shared indirect datasets is important to minimise
+the use of shared memory within the GPU.
+
+At the end of the parsing process, the preprocessor has a 
+list of all indirect datasets and their access types, and a 
+list of all of the main arguments and their access types and 
+also their mapping to indirect datasets where relevant.
+
+There is an important assumption that if the same dataset is
+used for different arguments with different access types, then
+there is no data conflict between the two.  Therefore, each will
+be treated by the parser and the subsequent code generated by 
+the preprocessor as a distinct indirect dataset.
+
+\subsection{Kernel code generation}
+
+If there are no indirect datasets, the kernel code which is 
+generated is relatively simple.  Each thread block executes
+one section of the set.  Read-only data is read from global 
+memory into local registers, and increment arguments are 
+initialised to zero.  A suitably-wrapped copy of the user's 
+kernel function is then invoked as an inlined routine.  
+Write-only data is written back to the global memory, and
+for increment data the values held in global memory are 
+incremented.
+
+
+If there are indirect datasets then the kernel code is 
+significantly more complicated.  Each thread block again
+executes one section of the set, but now shared memory
+is used to hold the indirect datasets.  The first step 
+is to read in the appropriate read-only indirect datasets 
+and initialise to zero the increment indirect datasets.
+Next comes the execution phase, in which the indirect 
+dataset values are taken from the shared memory arrays.
+Thread coloring is used during the incrementing of the 
+indirect dataset values, to prevent data conflict.
+Finally, after the completion of the execution phase
+the write-only indirect datasets are written to global 
+memory, and the global memory values for the increment 
+indirect datasets are incremented accordingly.
+
+For further details it is best to read the code, which 
+is generated complete with comments describing each 
+phase of its execution.
+
+\subsection{Stub code generation}
+
+If there are no indirect datasets, the stub code
+simply calls the kernel routine once with the required
+number of thread blocks.
+
+If there are indirect datasets, the stub code defines
+the mapping from arguments to indirect datasets and then
+calls a library routine which either calculates an 
+appropriate execution plan, or identifies one which has
+been generated previously using the same inout arguments.
+The stub code then calls the kernel routine several times,
+once for each block color required by the execution plan
+to avoid data conflicts between the blocks.
+
+
+
+\end{itemize}
+
+
+\end{document}
+
+
+
+\section{OPlus2 team}
+
+Tentatively, these are the groups/people who might work on this project.
+
+OPlus2 development:
+\begin{itemize}
+\item
+Oxford -- 
+\href{http://www.comlab.ox.ac.uk/mike.giles/}
+     {Mike Giles}
+and Gerd Heber
+
+I was responsible for the original design of OPlus, although my 
+post-doc Paul Crumpton did almost all of the original coding.  
+I do have experience of CUDA programming for a financial Monte 
+Carlo application, and as the original lead programmer for HYDRA 
+I understand its requirements.
+
+Gerd Heber is a member of the Oxford-Man Institute of Quantitative 
+Finance assisting a number of computational projects.  He has just 
+arrived from the Cornell Theory Center (Cornell's supercomputing centre)
+and is very experienced in parallel software development and software 
+engineering.
+
+\item
+Cambridge -- 
+\href{http://www.trinhall.cam.ac.uk/about/contact_directory_profile.asp?ItemID=573}
+     {Graham Pullan}
+and Tobias Brandvik
+
+Tobias has implemented a CFD code on an ATI card using the Brook GPU 
+language, and is now gaining experience with CUDA.  He is starting
+a PhD at Cambridge in the Whittle Laboratory on CFD implementation on 
+novel multicore graphics hardware.
+
+Graham Pullan is Tobias' supervisor, and a Rolls-Royce Research Fellow 
+in the Whittle Laboratory.
+
+\item
+Queen's University Belfast -- 
+\href{http://portal.surrey.ac.uk/eng/staff/staffac/HillsN}
+     {Christophe Denis}
+(and Stan Scott?)
+
+Christophe Denis is an Associate Professor at University Pierre et Marie 
+Curie (Paris 6) in the Department of Scientific Computing (LIP6).  He is 
+spending the next 18 months as a Research Fellow in the Dept.~of Electrical 
+Engineering and Computer Science at QUB, working with Prof Stan Scott.
+
+
+\item
+Surrey -- 
+\href{http://www-anp.lip6.fr/~denis/index.html}
+     {Nick Hills}
+
+Nick Hills is an Academic Fellow in the Fluids and Systems group.  
+Nick has extensive parallel computing experience and knows more about 
+the internals of OPlus than anyone else.  However, it's not clear he will 
+have time to contribute to this project, at least in its initial stages.
+
+\item
+NVIDIA, University of Illinois and/or CFD group at Stanford
+
+These groups might be interested in participating, but probably not in the 
+initial stages -- may be helpful later for profiling, code optimisation
+and CFD applications.  NVIDIA might be willing to help at an early stage
+by reviewing our technical plans and providing constructive criticism.
+
+\end{itemize}
+
+
+Application codes using OPlus2
+\begin{itemize}
+\item
+Rolls-Royce/Surrey -- Leigh Lapworth, Nick Hills and others
+
+HYDRA CFD code
+
+\item
+Nottingham -- 
+\href{http://www.maths.nottingham.ac.uk/personal/ph/}
+     {Paul Houston}
+and Edward Hall
+
+DGFEM (Discontinuous Galerkin Finite Element Method) 
+
+\item
+Oxford -- 
+\href{http://www.comlab.ox.ac.uk/endre.suli/}
+     {Endre Suli}
+and David Knezevic
+
+Materials FEM code
+
+\item
+BAESystems -- Jamil Appa
+
+FLITE-3D, an electromagnetic code and/or the Solar suite
+
+\item
+Stanford?
+
+CFD code
+\end{itemize}
+
+It would be good to have at least 3 application codes, particularly
+if we decide to ask for EPSRC research funding, and I think CFD, 
+materials modelling and computational electromagnetics are a good
+representative set of applications.  Another possibility might be
+oil reservoir modelling with Bath and/or Schlumberger (where Paul
+Crumpton now works).
+
+
+
+\section{Pre-processor}
+
+In OPlus, we designed things so we simply had to link in the 
+correct library to get either sequential or parallel executables.
+This was partly because we lacked the knowledge to do anything
+more sophisticated, such as using a pre-processor to make
+modifications to the code before compilation.
+
+This time, my starting point is to design the library interface
+to be the best it can be from the point of view of the user, and 
+therefore I think we need to have a pre-processor to prepare the 
+code for compilation.
+
+The pre-processor will need to carry out two functions.  The
+first is to convert the specification of the parallel loops
+into the appropriate lines of code to load and later store the 
+required data from device memory into local shared storage.
+The second is to convert the specification of the header file
+or include file on the host into the appropriate specification
+of the global constant data on the device, and perform the 
+necessary copying across from host to device.
+
+Given the desire to end up with a package which will run 
+equally happily under both Unix/Linux and Windows, it may be 
+that this pre-processor which I will later refer to as ``cpp'' 
+will actually be a Java-based code.
+
+
+
+\section{CUDA performance}
+
+One of the keys to high performance using CUDA is to achieve
+``coalescence'' of memory transfers between the main device memory 
+and the registers and local shared memory of the GPU.  This 
+improves the memory bandwidth by up to a factor 10 compared to
+irregular memory accesses, and is identified in NVIDIA presentations
+as a prime concern for code optimization.
+
+Achieving ``coalescence'' with a warp (or half-warp) of 32 (or 16) 
+threads requires that they load in a contiguous block of memory.
+This is not natural when using unstructured grids with irregular 
+patterns of memory access, but it could be achieved by grouping 
+all set elements into larger ``super-elements''.  For example, 
+the nodes of a computational grid could be grouped in fours into 
+``super-nodes'' (perhaps by using recursive geomteric bisection
+with the lower ``half'' rounded up in size to the nearest multiple 
+of 4).  In CFD applications, there are often 6 or 7 floats per node,
+so the combined data for a single ``super-node'' could be loaded 
+in one coalesced warp transfer.
+
+
+\section{Parallelisation strategies}
+
+\subsection*{Strategy 1}
+
+The first strategy is to not use the shared memory and instead 
+go for the simplest possible approach in which each thread handles 
+precisely one element of each set, loading in the required data
+from the main device memory, and then writing the modified data
+back to the device memory afterwards.  
+
+The only difficulty with this approach is when there is an update 
+to data through a pointer.  For example, when operations on an 
+edge modify the data at the nodes at either end of the edge then 
+there is a data conflict if two edges try to update the same node 
+at the same time.  
+
+One approach to this involves the use of atomic updates, but 
+currently this is only supported in CUDA for integer data, and 
+implementing it in software for other data types (using the 
+``supermarket cheese counter'' approach of taking a ``number'' 
+through an atomic update and then processing in turns) is likely 
+to be inefficient.
+
+I think the efficient may of handling it is likely to be through
+the standard approach of ``colouring'' the set elements so that 
+no two elements of the same colour update the same data.  For
+a typical unstructured grid I would expect 10-20 colours to
+be required.  The code executes each colour in parallel, then 
+synchronizes before doing the next colour.
+
+This strategy is very simple to implement, but its drawback
+is that it leads to very high bandwidth requirements between 
+the device main memory and the registers.
+
+\subsection*{Strategy 2}
+
+The second strategy reduces the bandwidth requirements by
+loading in the data needed by a block of elements into
+the local shared memory.  Multiple threads then work on this 
+data before eventually sending back the updated values to 
+the main memory.
+
+If each edge has two end nodes, and there are 5 edges per node
+on average, then when working on edges which point to nodes
+strategy 1 requires the loading of 2 nodes per edge, whereas 
+strategy 2 requires the loading of 0.2 nodes per edge, a bandwidth 
+savings of factor 10.  Because the blocks can't be too large 
+because of the limited size of the local shared memory we may 
+lose a factor 2 compared to ideal but I still think it will 
+much better this way as I expect the overall performance to
+be memory-bandwidth limited in many cases.
+
+Blocks will need to be coloured to avoid conflicts between blocks,
+and threads will need to be coloured within blocks for the same 
+reason.
+
+
+
+\subsection{Super-elements and blocking}
+
+Super-elements can be constructed through a recursive bisection 
+procedure.  Given $d$-dimensional ``coordinates'' for each element,
+the bisection can cycle through each dimension in turn.  At each 
+level, a standard bisection which split a tree node of size $S$
+into two parts, the larger being of size $S/2$ rounded up to 
+the nearest integer.  By changing this for $S>32$ (32 being the 
+warp size) to round up to the nearest multiple of 32, and also 
+padding the original set size to a multiple of 32, we end up
+with each element being a member of tree-nodes/super-elements 
+of size 1, 2, 4, 8, 16 and 32.  This allows the super-element 
+size to be chosen dynamically as part of the blocking ``plan''
+depending on the width of data required by the parallel loop.
+i.e. if there is just one float per element, then a super-element 
+size of 32 would be good, whereas if there are 32 floats per element 
+then working with single elements is fine from the point of view 
+of memory coalescence.
+
+If the binary tree information is stored, it can be re-used for 
+blocking by using the largest tree nodes whose memory requirements 
+fit within the limited shared memory size. i.e a tree node is used as 
+a block if it fits within the shared memory and its parent does not.
+(Needs a figure here to make this clear.)
+
+
+
+
