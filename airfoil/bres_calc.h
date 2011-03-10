@@ -2,8 +2,8 @@ inline void bres_calc(op_data<float,2,2> x, op_data<float,4> q,
                       op_data<float> adt, op_data<float,4> res,op_data<int> bound) {
   float dx,dy,mu, ri, p1,vol1, p2,vol2, f;
 
-  dx = x(0,0) - x(1,0);
-  dy = x(0,1) - x(1,1);
+  dx = x(0,0) - x(0,1);
+  dy = x(1,0) - x(1,1);
 
   ri = 1.0f/q(0);
   p1 = gm1*(q(3)-0.5f*ri*(q(1)*q(1)+q(2)*q(2)));
