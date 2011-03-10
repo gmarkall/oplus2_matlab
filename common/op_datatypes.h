@@ -35,6 +35,8 @@
 #ifndef OP_DATATYPES
 #define OP_DATATYPES
 
+#include <assert.h>
+
 //
 // OP diagnostics level; defined in op_seq.cpp/op_lib.cu and set in op_init
 //
@@ -121,6 +123,10 @@ typedef struct {
              *name;   // name of dataset
 } op_dat;
 
+// index for direct mapping
+#define OP_NONE -1
+// all indices selector
+#define OP_ALL -2
 // identity mapping
 #define OP_ID  (op_map) {{0,0,"null"},{0,0,"null"},0,-1,NULL,"id"}
 
@@ -159,6 +165,53 @@ typedef struct {
   float       transfer; // bytes of data transfer (used)
   float       transfer2;// bytes of data transfer (total)
 } op_kernel;
+
+// Data structure providing access to mapped data
+
+template <typename T, int Dim1 = 0, int Dim2 = 0>
+struct op_data {
+  typedef T type;
+  T *d;
+  op_data() : d(0) {}
+  op_data(T *p) : d(p) {}
+  op_data(char *p) : d((T*)p) {}
+  const T& operator()(int i = 0, int j = 0) const {
+    assert(d!=0);
+    return d[i + j * Dim1];
+  }
+  T& operator()(int i = 0, int j = 0) {
+    assert(d!=0);
+    return d[i + j * Dim1];
+  }
+};
+
+// Specialisation for the scalar case
+
+template <typename T>
+struct op_data<T,0,0> {
+  typedef T type;
+  T *d;
+  op_data() {}
+  op_data(T *p) : d(p) {}
+  op_data(char *p) : d((T*)p) {}
+  T operator*() const {
+    assert(d!=0);
+    return *d;
+  }
+  T& operator*() {
+    assert(d!=0);
+    return *d;
+  }
+  operator T() const {
+    assert(d!=0);
+    return *d;
+  }
+  T& operator=(const T& v) {
+    assert(d!=0);
+    *d = v;
+    return *d;
+  }
+};
 
 //
 //  min / max definitions
