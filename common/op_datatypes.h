@@ -63,8 +63,8 @@ enum op_access   { OP_READ, OP_WRITE, OP_RW, OP_INC, OP_MIN, OP_MAX };
 typedef long long ll;
 typedef unsigned long long ull;
 
-inline int type_error(const double *,const char *type){return strcmp(type,"double");}
-inline int type_error(const float  *,const char *type){return strcmp(type,"float" );}
+inline int type_error(const float *,const char *type){return strcmp(type,"float");}
+inline int type_error(const double  *,const char *type){return strcmp(type,"double" );}
 inline int type_error(const int    *,const char *type){return strcmp(type,"int"   );}
 inline int type_error(const uint   *,const char *type){return strcmp(type,"uint"  );}
 inline int type_error(const ll     *,const char *type){return strcmp(type,"ll"    );}
@@ -83,8 +83,8 @@ inline int type_error(const bool   *,const char *type){return strcmp(type,"bool"
 // zero constants
 //
 
-#define ZERO_double  0.0;
-#define ZERO_float   0.0f;
+#define ZERO_float  0.0;
+#define ZERO_double   0.0f;
 #define ZERO_int     0;
 #define ZERO_uint    0;
 #define ZERO_ll      0;
@@ -148,16 +148,16 @@ typedef struct {
   int        *ncolblk;  // number of blocks for each color
   int        *blkmap;   // block mapping
   int         nshared;  // bytes of shared memory required
-  float       transfer; // bytes of data transfer per kernel call
-  float       transfer2;// bytes of cache line per kernel call
+  double       transfer; // bytes of data transfer per kernel call
+  double       transfer2;// bytes of cache line per kernel call
 } op_plan;
 
 typedef struct {
   char const *name;     // name of kernel function
   int         count;    // number of times called
-  float       time;     // total execution time
-  float       transfer; // bytes of data transfer (used)
-  float       transfer2;// bytes of data transfer (total)
+  double       time;     // total execution time
+  double       transfer; // bytes of data transfer (used)
+  double       transfer2;// bytes of data transfer (total)
 } op_kernel;
 
 //

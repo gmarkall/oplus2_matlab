@@ -11,13 +11,13 @@ __device__
 // CUDA kernel function                                                           
                                                                                   
 __global__ void op_cuda_save_soln(                                                
-  float *arg0,                                                                    
-  float *arg1,                                                                    
+  double *arg0,                                                                    
+  double *arg1,                                                                    
   int   offset_s,                                                                 
   int   set_size ) {                                                              
                                                                                   
-  float arg0_l[4];                                                                
-  float arg1_l[4];                                                                
+  double arg0_l[4];                                                                
+  double arg1_l[4];                                                                
   int   tid = threadIdx.x%OP_WARPSIZE;                                            
                                                                                   
   extern __shared__ char shared[];                                                
@@ -35,10 +35,10 @@ __global__ void op_cuda_save_soln(
     // copy data into shared memory, then into local                              
                                                                                   
     for (int m=0; m<4; m++)                                                       
-      ((float *)arg_s)[tid+m*nelems] = arg0[tid+m*nelems+offset*4];               
+      ((double *)arg_s)[tid+m*nelems] = arg0[tid+m*nelems+offset*4];               
                                                                                   
     for (int m=0; m<4; m++)                                                       
-      arg0_l[m] = ((float *)arg_s)[m+tid*4];                                      
+      arg0_l[m] = ((double *)arg_s)[m+tid*4];                                      
                                                                                   
                                                                                   
     // user-supplied kernel call                                                  
@@ -49,10 +49,10 @@ __global__ void op_cuda_save_soln(
     // copy back into shared memory, then to device                               
                                                                                   
     for (int m=0; m<4; m++)                                                       
-      ((float *)arg_s)[m+tid*4] = arg1_l[m];                                      
+      ((double *)arg_s)[m+tid*4] = arg1_l[m];                                      
                                                                                   
     for (int m=0; m<4; m++)                                                       
-      arg1[tid+m*nelems+offset*4] = ((float *)arg_s)[tid+m*nelems];               
+      arg1[tid+m*nelems+offset*4] = ((double *)arg_s)[tid+m*nelems];               
                                                                                   
   }                                                                               
 }                                                                                 
@@ -83,8 +83,8 @@ void op_par_loop_save_soln(char const *name, op_set set,
   // work out shared memory requirements per element                              
                                                                                   
   int nshared = 0;                                                                
-  nshared = MAX(nshared,sizeof(float)*4);                                         
-  nshared = MAX(nshared,sizeof(float)*4);                                         
+  nshared = MAX(nshared,sizeof(double)*4);                                         
+  nshared = MAX(nshared,sizeof(double)*4);                                         
                                                                                   
   // execute plan                                                                 
                                                                                   
@@ -92,8 +92,8 @@ void op_par_loop_save_soln(char const *name, op_set set,
                                                                                   
   nshared = nshared*nthread;                                                      
                                                                                   
-  op_cuda_save_soln<<<nblocks,nthread,nshared>>>( (float *) arg0.dat_d,           
-                                                  (float *) arg1.dat_d,           
+  op_cuda_save_soln<<<nblocks,nthread,nshared>>>( (double *) arg0.dat_d,           
+                                                  (double *) arg1.dat_d,           
                                                   offset_s,                       
                                                   set.size );                     
                                                                                   
@@ -106,7 +106,7 @@ void op_par_loop_save_soln(char const *name, op_set set,
   OP_kernels[0].name      = name;                                                 
   OP_kernels[0].count    += 1;                                                    
   OP_kernels[0].time     += wall_t2 - wall_t1;                                    
-  OP_kernels[0].transfer += (float)set.size * arg0.size;                          
-  OP_kernels[0].transfer += (float)set.size * arg1.size;                          
+  OP_kernels[0].transfer += (double)set.size * arg0.size;                          
+  OP_kernels[0].transfer += (double)set.size * arg1.size;                          
 }                                                                                 
                                                                                   

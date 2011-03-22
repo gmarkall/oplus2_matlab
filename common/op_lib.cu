@@ -654,7 +654,7 @@ extern op_plan * plan(char const * name, op_set set, int nargs, op_dat *args, in
   int *nindirect;
   nindirect = (int *)calloc(ninds,sizeof(int));  // total number of indirect elements
 
-  float total_colors = 0;
+  double total_colors = 0;
 
   for (int b=0; b<nblocks; b++) {
     int bs = MIN(bsize, set.size - b*bsize);
@@ -883,7 +883,7 @@ extern op_plan * plan(char const * name, op_set set, int nargs, op_dat *args, in
   // work out shared memory requirements
 
   OP_plans[ip].nshared = 0;
-  float total_shared = 0;
+  double total_shared = 0;
 
   for (int b=0; b<nblocks; b++) {
     int nbytes = 0;
@@ -905,7 +905,7 @@ extern op_plan * plan(char const * name, op_set set, int nargs, op_dat *args, in
   for (int b=0; b<nblocks; b++) {
     for (int m=0; m<nargs; m++) {
       if (inds[m]<0) {
-        float fac = 2.0f;
+        double fac = 2.0f;
         if (accs[m]==OP_READ) fac = 1.0f;
         OP_plans[ip].transfer  += fac*OP_plans[ip].nelems[b]*args[m].size;
         OP_plans[ip].transfer2 += fac*OP_plans[ip].nelems[b]*args[m].size;
@@ -918,7 +918,7 @@ extern op_plan * plan(char const * name, op_set set, int nargs, op_dat *args, in
     for (int m=0; m<ninds; m++) {
       int m2 = 0;
       while(inds[m2]!=m) m2++;
-      float fac = 2.0f;
+      double fac = 2.0f;
       if (accs[m2]==OP_READ) fac = 1.0f;
       OP_plans[ip].transfer += fac*OP_plans[ip].ind_sizes[m+b*ninds]*args[m2].size;
 

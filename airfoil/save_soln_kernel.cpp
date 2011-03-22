@@ -10,8 +10,8 @@
 // x86 kernel function                                                            
                                                                                   
 void op_x86_save_soln(                                                            
-  float *arg0,                                                                    
-  float *arg1,                                                                    
+  double *arg0,                                                                    
+  double *arg1,                                                                    
   int   start,                                                                    
   int   finish ) {                                                                
                                                                                   
@@ -58,8 +58,8 @@ void op_par_loop_save_soln(char const *name, op_set set,
   for (int thr=0; thr<nthreads; thr++) {                                          
     int start  = (set.size* thr   )/nthreads;                                     
     int finish = (set.size*(thr+1))/nthreads;                                     
-    op_x86_save_soln( (float *) arg0.dat,                                         
-                      (float *) arg1.dat,                                         
+    op_x86_save_soln( (double *) arg0.dat,                                         
+                      (double *) arg1.dat,                                         
                       start, finish );                                            
   }                                                                               
                                                                                   
@@ -69,7 +69,7 @@ void op_par_loop_save_soln(char const *name, op_set set,
   OP_kernels[0].name      = name;                                                 
   OP_kernels[0].count    += 1;                                                    
   OP_kernels[0].time     += wall_t2 - wall_t1;                                    
-  OP_kernels[0].transfer += (float)set.size * arg0.size;                          
-  OP_kernels[0].transfer += (float)set.size * arg1.size;                          
+  OP_kernels[0].transfer += (double)set.size * arg0.size;                          
+  OP_kernels[0].transfer += (double)set.size * arg1.size;                          
 }                                                                                 
                                                                                   
