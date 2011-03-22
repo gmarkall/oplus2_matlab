@@ -364,7 +364,7 @@ int main(int argc, char **argv){
   timers(&cpu_t2, &wall_t2); 
   
   //print each mpi process's timing info for each kernel
-  op_timing_output(my_rank); 
+  //op_timing_output(my_rank); 
   
   //print total time for niter interations 
   time = wall_t2-wall_t1;
