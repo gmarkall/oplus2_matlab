@@ -11,12 +11,12 @@ __device__
 // CUDA kernel function                                                           
                                                                                   
 __global__ void op_cuda_res(                                                      
-  float *ind_arg0, int *ind_arg0_maps,                                            
-  float *ind_arg1, int *ind_arg1_maps,                                            
-  float *arg0,                                                                    
+  double *ind_arg0, int *ind_arg0_maps,                                            
+  double *ind_arg1, int *ind_arg1_maps,                                            
+  double *arg0,                                                                    
   short *arg1_maps,                                                               
   short *arg2_maps,                                                               
-  const float *arg3,                                                              
+  const double *arg3,                                                              
   int   *ind_arg_sizes,                                                           
   int   *ind_arg_offs,                                                            
   int    block_offset,                                                            
@@ -26,12 +26,12 @@ __global__ void op_cuda_res(
   int   *ncolors,                                                                 
   int   *colors) {                                                                
                                                                                   
-  float arg2_l[1];                                                                
+  double arg2_l[1];                                                                
                                                                                   
   __shared__ int   *ind_arg0_map, ind_arg0_size;                                  
   __shared__ int   *ind_arg1_map, ind_arg1_size;                                  
-  __shared__ float *ind_arg0_s;                                                   
-  __shared__ float *ind_arg1_s;                                                   
+  __shared__ double *ind_arg0_s;                                                   
+  __shared__ double *ind_arg1_s;                                                   
   __shared__ int    nelems2, ncolor;                                              
   __shared__ int    nelem, offset_b;                                              
                                                                                   
@@ -58,9 +58,9 @@ __global__ void op_cuda_res(
     // set shared memory pointers                                                 
                                                                                   
     int nbytes = 0;                                                               
-    ind_arg0_s = (float *) &shared[nbytes];                                       
-    nbytes    += ROUND_UP(ind_arg0_size*sizeof(float)*1);                         
-    ind_arg1_s = (float *) &shared[nbytes];                                       
+    ind_arg0_s = (double *) &shared[nbytes];                                       
+    nbytes    += ROUND_UP(ind_arg0_size*sizeof(double)*1);                         
+    ind_arg1_s = (double *) &shared[nbytes];                                       
   }                                                                               
                                                                                   
   __syncthreads(); // make sure all of above completed                            
@@ -71,7 +71,7 @@ __global__ void op_cuda_res(
     ind_arg0_s[n] = ind_arg0[n%1+ind_arg0_map[n/1]*1];                            
                                                                                   
   for (int n=threadIdx.x; n<ind_arg1_size*1; n+=blockDim.x)                       
-    ind_arg1_s[n] = ZERO_float;                                                   
+    ind_arg1_s[n] = ZERO_double;                                                   
                                                                                   
   __syncthreads();                                                                
                                                                                   
@@ -85,7 +85,7 @@ __global__ void op_cuda_res(
       // initialise local variables                                               
                                                                                   
       for (int d=0; d<1; d++)                                                     
-        arg2_l[d] = ZERO_float;                                                   
+        arg2_l[d] = ZERO_double;                                                   
                                                                                   
       // user-supplied kernel call                                                
                                                                                   
@@ -125,9 +125,9 @@ void op_par_loop_res(char const *name, op_set set,
   op_dat arg0, int idx0, op_map map0, int dim0, char const *typ0, op_access acc0, 
   op_dat arg1, int idx1, op_map map1, int dim1, char const *typ1, op_access acc1, 
   op_dat arg2, int idx2, op_map map2, int dim2, char const *typ2, op_access acc2, 
-  float *arg3h,int idx3, op_map map3, int dim3, char const *typ3, op_access acc3){
+  double *arg3h,int idx3, op_map map3, int dim3, char const *typ3, op_access acc3){
                                                                                   
-  op_dat arg3 = {{0,0,"null"},0,0,0,(char *)arg3h,NULL,"float","gbl"};            
+  op_dat arg3 = {{0,0,"null"},0,0,0,(char *)arg3h,NULL,"double","gbl"};            
                                                                                   
   int         nargs = 4, ninds = 2;                                               
                                                                                   
@@ -155,15 +155,15 @@ void op_par_loop_res(char const *name, op_set set,
   // transfer constants to GPU                                                    
                                                                                   
   int consts_bytes = 0;                                                           
-  consts_bytes += ROUND_UP(1*sizeof(float));                                      
+  consts_bytes += ROUND_UP(1*sizeof(double));                                      
                                                                                   
   reallocConstArrays(consts_bytes);                                               
                                                                                   
   consts_bytes = 0;                                                               
   arg3.dat   = OP_consts_h + consts_bytes;                                        
   arg3.dat_d = OP_consts_d + consts_bytes;                                        
-  for (int d=0; d<1; d++) ((float *)arg3.dat)[d] = ((float *)arg3h)[d];           
-  consts_bytes += ROUND_UP(1*sizeof(float));                                      
+  for (int d=0; d<1; d++) ((double *)arg3.dat)[d] = ((double *)arg3h)[d];           
+  consts_bytes += ROUND_UP(1*sizeof(double));                                      
                                                                                   
   mvConstArraysToDevice(consts_bytes);                                            
                                                                                   
@@ -177,12 +177,12 @@ void op_par_loop_res(char const *name, op_set set,
     int nthread = OP_block_size;                                                  
     int nshared = (*Plan).nshared;                                                
     op_cuda_res<<<nblocks,nthread,nshared>>>(                                     
-       (float *)arg1.dat_d, (*Plan).ind_maps[0],                                  
-       (float *)arg2.dat_d, (*Plan).ind_maps[1],                                  
-       (float *)arg0.dat_d,                                                       
+       (double *)arg1.dat_d, (*Plan).ind_maps[0],                                  
+       (double *)arg2.dat_d, (*Plan).ind_maps[1],                                  
+       (double *)arg0.dat_d,                                                       
        (*Plan).maps[1],                                                           
        (*Plan).maps[2],                                                           
-       (float *)arg3.dat_d,                                                       
+       (double *)arg3.dat_d,                                                       
        (*Plan).ind_sizes,                                                         
        (*Plan).ind_offs,                                                          
        block_offset,                                                              

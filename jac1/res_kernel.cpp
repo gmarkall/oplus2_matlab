@@ -11,12 +11,12 @@
                                                                                   
 void op_x86_res(                                                                  
   int    blockIdx,                                                                
-  float *ind_arg0, int *ind_arg0_maps,                                            
-  float *ind_arg1, int *ind_arg1_maps,                                            
-  float *arg0,                                                                    
+  double *ind_arg0, int *ind_arg0_maps,                                            
+  double *ind_arg1, int *ind_arg1_maps,                                            
+  double *arg0,                                                                    
   short *arg1_maps,                                                               
   short *arg2_maps,                                                               
-  const float *arg3,                                                              
+  const double *arg3,                                                              
   int   *ind_arg_sizes,                                                           
   int   *ind_arg_offs,                                                            
   int    block_offset,                                                            
@@ -26,12 +26,12 @@ void op_x86_res(
   int   *ncolors,                                                                 
   int   *colors) {                                                                
                                                                                   
-  float arg2_l[1];                                                                
+  double arg2_l[1];                                                                
                                                                                   
   int   *ind_arg0_map, ind_arg0_size;                                  
   int   *ind_arg1_map, ind_arg1_size;                                  
-  float *ind_arg0_s;                                                   
-  float *ind_arg1_s;                                                   
+  double *ind_arg0_s;                                                   
+  double *ind_arg1_s;                                                   
   int    nelems2, ncolor;                                              
   int    nelem, offset_b;                                              
                                                                                   
@@ -57,9 +57,9 @@ void op_x86_res(
     // set shared memory pointers                                                 
                                                                                   
     int nbytes = 0;                                                               
-    ind_arg0_s = (float *) &shared[nbytes];                                       
-    nbytes    += ROUND_UP(ind_arg0_size*sizeof(float)*1);                         
-    ind_arg1_s = (float *) &shared[nbytes];                                       
+    ind_arg0_s = (double *) &shared[nbytes];                                       
+    nbytes    += ROUND_UP(ind_arg0_size*sizeof(double)*1);                         
+    ind_arg1_s = (double *) &shared[nbytes];                                       
   }                                                                               
                                                                                   
   __syncthreads(); // make sure all of above completed                            
@@ -72,7 +72,7 @@ void op_x86_res(
                                                                                   
   for (int n=0; n<ind_arg1_size; n++)                                             
     for (int d=0; d<1; d++)                                                       
-      ind_arg1_s[d+n*1] = ZERO_float;                                             
+      ind_arg1_s[d+n*1] = ZERO_double;                                             
                                                                                   
   __syncthreads();                                                                
                                                                                   
@@ -86,7 +86,7 @@ void op_x86_res(
       // initialise local variables                                               
                                                                                   
       for (int d=0; d<1; d++)                                                     
-        arg2_l[d] = ZERO_float;                                                   
+        arg2_l[d] = ZERO_double;                                                   
                                                                                   
       // user-supplied kernel call                                                
                                                                                   
@@ -127,9 +127,9 @@ void op_par_loop_res(char const *name, op_set set,
   op_dat arg0, int idx0, op_map map0, int dim0, char const *typ0, op_access acc0, 
   op_dat arg1, int idx1, op_map map1, int dim1, char const *typ1, op_access acc1, 
   op_dat arg2, int idx2, op_map map2, int dim2, char const *typ2, op_access acc2, 
-  float *arg3h,int idx3, op_map map3, int dim3, char const *typ3, op_access acc3){
+  double *arg3h,int idx3, op_map map3, int dim3, char const *typ3, op_access acc3){
                                                                                   
-  op_dat arg3 = {{0,0,"null"},0,0,0,(char *)arg3h,NULL,"float","gbl"};            
+  op_dat arg3 = {{0,0,"null"},0,0,0,(char *)arg3h,NULL,"double","gbl"};            
                                                                                   
   int         nargs = 4, ninds = 2;                                               
                                                                                   
@@ -172,12 +172,12 @@ void op_par_loop_res(char const *name, op_set set,
 #pragma omp parallel for                                                          
     for (int blockIdx=0; blockIdx<nblocks; blockIdx++)                            
      op_x86_res( blockIdx,                                                        
-       (float *)arg1.dat, (*Plan).ind_maps[0],                                    
-       (float *)arg2.dat, (*Plan).ind_maps[1],                                    
-       (float *)arg0.dat,                                                         
+       (double *)arg1.dat, (*Plan).ind_maps[0],                                    
+       (double *)arg2.dat, (*Plan).ind_maps[1],                                    
+       (double *)arg0.dat,                                                         
        (*Plan).maps[1],                                                           
        (*Plan).maps[2],                                                           
-       (float *)arg3.dat,                                                         
+       (double *)arg3.dat,                                                         
        (*Plan).ind_sizes,                                                         
        (*Plan).ind_offs,                                                          
        block_offset,                                                              
