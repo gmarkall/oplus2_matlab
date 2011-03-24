@@ -1,4 +1,4 @@
-inline void res_calc(float x[2][2], float q[2][4], float adt[2],float res[2][4]) {
+inline void res_calc(float *x[2], float *q[4], float *adt,float *res[4]) {
   float dx,dy,mu, ri, p1,vol1, p2,vol2, f;
 
   dx = x[0][0] - x[1][0];

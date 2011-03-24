@@ -75,7 +75,7 @@ void op_decl_set(int size, op_set &set, char const *name){
     OP_set_list = (op_set **) realloc(OP_set_list,OP_set_max*sizeof(op_set *));
     if (OP_set_list==NULL) {
       printf(" op_decl_set error -- error reallocating memory\n");
-      exit(-1);  
+      exit(-1);
     }
   }
 
@@ -123,7 +123,7 @@ void op_decl_map(op_set from, op_set to, int dim, int *map, op_map &mapping, cha
     OP_map_list = (op_map **) realloc(OP_map_list,OP_map_max*sizeof(op_map *));
     if (OP_map_list==NULL) {
       printf(" op_decl_map error -- error reallocating memory\n");
-      exit(-1);  
+      exit(-1);
     }
   }
 
@@ -156,7 +156,7 @@ void op_decl_dat_char(op_set set, int dim, char const *type, int size, char *dat
     OP_dat_list = (op_dat **) realloc(OP_dat_list,OP_dat_max*sizeof(op_dat *));
     if (OP_dat_list==NULL) {
       printf(" op_decl_dat error -- error reallocating memory\n");
-      exit(-1);  
+      exit(-1);
     }
   }
 
