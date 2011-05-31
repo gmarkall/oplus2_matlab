@@ -2,7 +2,7 @@
   Open source copyright declaration based on BSD open source template:
   http://www.opensource.org/licenses/bsd-license.php
 
-* Copyright (c) 2009, Mike Giles
+* Copyright (c) 2009-2011, Mike Giles
 * All rights reserved.
 *
 * Redistribution and use in source and binary forms, with or without
@@ -117,7 +117,28 @@ void op_init(int argc, char **argv, int diags){
 }
 
 void op_exit(){
+  for(int ip=0; ip<OP_plan_index; ip++) {
+    for (int m=0; m<OP_plans[ip].nargs; m++)
+      if (OP_plans[ip].maps[m] != NULL)
+        cutilSafeCall(cudaFree(OP_plans[ip].maps[m]));
+    for (int m=0; m<OP_plans[ip].ninds; m++)
+      cutilSafeCall(cudaFree(OP_plans[ip].ind_maps[m]));
+    cutilSafeCall(cudaFree(OP_plans[ip].ind_offs));
+    cutilSafeCall(cudaFree(OP_plans[ip].ind_sizes));
+    cutilSafeCall(cudaFree(OP_plans[ip].nthrcol));
+    cutilSafeCall(cudaFree(OP_plans[ip].thrcol));
+    cutilSafeCall(cudaFree(OP_plans[ip].offset));
+    cutilSafeCall(cudaFree(OP_plans[ip].nelems));
+    cutilSafeCall(cudaFree(OP_plans[ip].blkmap));
+  }
+
+  for(int i=0; i<OP_dat_index; i++) {
+    cutilSafeCall(cudaFree(OP_dat_list[i]->dat_d));
+  }
+
   op_exit_core();
+
+  cudaThreadExit();
 }
 
 

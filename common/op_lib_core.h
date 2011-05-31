@@ -2,7 +2,7 @@
   Open source copyright declaration based on BSD open source template:
   http://www.opensource.org/licenses/bsd-license.php
 
-* Copyright (c) 2009, Mike Giles
+* Copyright (c) 2009-2011, Mike Giles
 * All rights reserved.
 *
 * Redistribution and use in source and binary forms, with or without
@@ -26,6 +26,16 @@
 * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
 * SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 */
+
+//
+// header files
+//
+
+#include <stdlib.h>                                                         
+#include <stdio.h>                                                          
+#include <string.h>                                                         
+#include <strings.h>                                                         
+#include <math.h>                                                           
 
 //
 // essential typedefs
@@ -95,7 +105,7 @@ typedef struct {
   op_set       set;
   op_map      *map;
   op_dat      *arg;
-  int          nargs, *idxs, *dims, part_size;
+  int          nargs, ninds, *idxs, *dims, part_size;
   char const **typs;
   op_access   *accs;
 

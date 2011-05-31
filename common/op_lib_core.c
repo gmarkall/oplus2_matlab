@@ -2,7 +2,7 @@
   Open source copyright declaration based on BSD open source template:
   http://www.opensource.org/licenses/bsd-license.php
 
-* Copyright (c) 2009, Mike Giles
+* Copyright (c) 2009-2011, Mike Giles
 * All rights reserved.
 *
 * Redistribution and use in source and binary forms, with or without
@@ -28,14 +28,8 @@
 */
 
 //
-// header files
+// OP2 core header file -- defines datatypes and core functions
 //
-
-#include <stdlib.h>                                                         
-#include <stdio.h>                                                          
-#include <string.h>                                                         
-#include <strings.h>                                                         
-#include <math.h>                                                           
 
 #include "op_lib_core.h"
 
@@ -199,6 +193,7 @@ op_dat op_decl_dat_char(op_set set, int dim, char const *type,
   dat->set   = set;
   dat->dim   = dim;
   dat->dat   = cdat;
+  dat->dat_d = NULL;
   dat->name  = name;
   dat->type  = type;
   dat->size  = dim*size;
@@ -283,15 +278,66 @@ void op_timing_realloc(int kernel){
 
     for (int n=OP_kern_max; n<OP_kern_max_new; n++) {
       OP_kernels[n].count     = 0;
+      OP_kernels[n].time      = 0.0f;
       OP_kernels[n].transfer  = 0.0f;
       OP_kernels[n].transfer2 = 0.0f;
+      OP_kernels[n].name      = "unused";
     }
     OP_kern_max = OP_kern_max_new;
   }
 }
 
+
+
 void op_exit_core(){
+
+  // free storage for plans
+
+  for(int ip=0; ip<OP_plan_index; ip++) {
+    free(OP_plans[ip].arg);
+    free(OP_plans[ip].idxs);
+    free(OP_plans[ip].map);
+    free(OP_plans[ip].dims);
+    free(OP_plans[ip].typs);
+    free(OP_plans[ip].accs);
+    free(OP_plans[ip].ind_maps);
+    free(OP_plans[ip].maps);
+    free(OP_plans[ip].ncolblk);
+  }
+
+  free(OP_plans);
+
+  // free storage and pointers for sets, maps and data
+
+  for(int i=0; i<OP_set_index; i++) {
+    free(OP_set_list[i]);
+  }
+  free(OP_set_list);
+
+  OP_set_index = 0;
+  OP_set_max   = 0;
+
+  for(int i=0; i<OP_map_index; i++) {
+    free(OP_map_list[i]);
+  }
+  free(OP_map_list);
+
+  OP_map_index = 0;
+  OP_map_max   = 0;
+
+  for(int i=0; i<OP_dat_index; i++) {
+    free(OP_dat_list[i]);
+  }
+  free(OP_dat_list);
+
+  OP_dat_index = 0;
+  OP_dat_max   = 0;
+
+  // free storage for timing info
+
+  free(OP_kernels);
 }
+
 
 //
 // routines below are needed for generated CUDA and OpenMP code
@@ -473,6 +519,7 @@ op_plan * plan(char const *name, op_set set, int part_size, int nargs,
   OP_plans[ip].name      = name;
   OP_plans[ip].set       = set;
   OP_plans[ip].nargs     = nargs;
+  OP_plans[ip].ninds     = ninds;
   OP_plans[ip].part_size = part_size;
     
   OP_plan_index++;
@@ -821,6 +868,10 @@ op_plan * plan(char const *name, op_set set, int part_size, int nargs,
   for (int m=0; m<nargs; m++) {
     if (inds[m]>=0)
       op_mvHostToDevice((void **)&(OP_plans[ip].maps[m]), sizeof(short)*set->size);
+    else {
+      free(OP_plans[ip].maps[m]);
+      OP_plans[ip].maps[m] = NULL;
+    }
   }
 
   op_mvHostToDevice((void **)&(OP_plans[ip].ind_sizes),sizeof(int)*nblocks*ninds);
