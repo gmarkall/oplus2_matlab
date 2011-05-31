@@ -35,21 +35,209 @@
 
 \begin{document}
 
-\title{OP2 Developer's Guide}
+\title{OP2 Developers Guide}
 \author{Mike Giles}
-
 
 \maketitle
 
 \begin{abstract}
 This document explains some of the algorithms and implementation
 details inside OP2.  It is intended primarily for those who are
-developing OP2, and it is assumed they have already read the OP2 
-Notes document.  Some of the material in that may be transferred
-to this document in the future.
-
-Those who are only using OP2 should instead read the User's Manual.  
+developing OP2; those who are only using OP2 should instead read 
+the Users Manual.  
+\vspace*{0.2in}
 \end{abstract}
+
+%\newpage
+
+\tableofcontents
+
+\newpage
+
+\section{Overall parallelisation strategy}
+
+The OP2 design uses hierarchical parallelism with two principal levels.
+
+At the higher level, OP2 will be parallelized across distributed-memory
+clusters using MPI message-passing.  This will use essentially the same 
+implementation approach as the original OPlus.  The domain will be 
+partitioned among the compute nodes of the cluster, and import/export 
+halos will be constructed for message-passing.  Data conflicts when 
+incrementing indirectly referenced datasets will be avoided by using an
+``owner-compute'' model, in which each process performs the computations
+which are required to update data owned by that partition.  This approach
+involves some amount of redundant computation; for example, if the 
+computation for a particular edge results in increments to the data at 
+two nodes belonging to different partitions, then both of those partitions 
+will need to perform this edge computation.  However, there will be a 
+minimal level of redundant computation if the cluster satisfies the first
+of our key assumptions:
+
+\vspace{0.1in}
+{\bf Key assumption 1: each compute node will have GBs of memory}
+\vspace{0.1in}
+
+At the lower level, there will be different kinds of parallelism depending
+on the target hardware:
+\begin{itemize}
+\item
+on NVIDIA GPUs, the lower level may be split into two, with multiple 
+thread blocks, and multiple threads within each block;
+\item
+on CPUs, the lower level may also be split in two, with shared-memory
+multithreading through OpenMP, and a possibility of each thread using
+vectorization to exploit the capabilities of SSE/AVX vector units.
+\end{itemize}
+
+In both cases, we have two further key assumptions:
+
+\vspace{0.1in}
+{\bf Key assumption 2: memory bandwidth is a major limitation}
+\vspace{0.1in}
+
+In the case of GPUs, this refers to the bandwidth between the main 
+graphics memory and the GPU, whereas for CPUs it is the bandwidth between 
+the main system memory and the CPUs.
+
+\vspace{0.1in}
+{\bf Key assumption 3: there is very little local shared memory}
+\vspace{0.1in}
+
+In the case of GPUs, this refers to shared memory with a SM 
+(Streaming Multiprocessor) unit of the GPU, whereas for CPUs it 
+refers to the size of the L1 cache.
+
+
+These assumptions will motivate the implementation design decisions.
+
+
+
+
+\newpage
+
+\section{CUDA parallelisation strategy}
+
+Because of Key Assumption 2, the starting point in designing the 
+CUDA implementation is to minimize the amount of data which needs 
+to be transferred between the graphics memory and the GPU.
+
+For indirect loops (loops which involve indirectly-referenced datasets)
+this leads to the idea of working with mini-partitions which are small 
+enough so that all of the indirect datasets for each of the mini-partitions
+is able to fit into the limited shared memory on each SM within an NVIDIA 
+GPU.  
+
+Read-only (and read-write) indirect data is loaded in once at the beginning 
+of a CUDA kernel and then re-used as needed by the threads working within 
+the thread block.  Write-only (and read-write) indirect data is written 
+back to graphics memory at the end of a kernel.
+
+For data which is incremented, the shared memory array of increments is 
+initialized to zero, and then at the end of the kernel the increments are
+applied to the global array held in the graphics memory.  In doing this, 
+we need to avoid the potential data conflicts (race conditions).  
+For example, in the ``airfoil'' testcase in the OP2 distribution, 
+different edges in the {\tt res} routine can update data at the same 
+cell.  The problems are avoided by coloring
+\footnote{This was a well-established technique for vector computing.}
+at two levels:
+\begin{itemize}
+\item
+the blocks are colored so that there is no data conflict between two 
+blocks of the same color -- a separate CUDA kernel call is used for each
+block color, with a synchronization between colors to ensure there is no
+conflict;
+\item
+the threads within each block are colored, and the increments are applied
+one color at a time, with a {\tt \_\_syncthreads} thread synchronization
+between each thread color -- this results in some loss of performance due
+to CUDA warp divergence (i.e.~a lot of threads are idle during this 
+incrementing process) but overall it is not large.
+\footnote{To minimize the number of colors within each thread ``warp'', 
+it may be best to reorder the threads within each block.  This would 
+scramble up the identity mapping used for directly-referenced data, 
+so there would be some communication cost, but it's possible there would 
+be savings overall.}
+\footnote{
+An alternative to thread coloring would be for each thread to store its
+increment separately in the shared memory, and then have an additional loop
+within the kernel in which the increments for each data element are combined
+by a unique thread.  This approach has been used for a finite element
+application by C.~Ceska at Stanford, but it requires a lot of shared memory.
+Because of Key Assumption 3, this would lead to extremely small 
+mini-partitions, which in turn would give very poor data reuse, and so
+we chose not to try this approach.}
+
+\end{itemize}
+
+
+\subsection{Execution plans}
+
+In standard MPI computations, because of the cost of re-partitioning,
+the partitioning is usually done just once and the same partitioning is 
+then used for each stage of the computation.
+
+In contrast, between each stage of the computation on the GPU the data 
+resides in the main graphics memory, and so the blocking for each parallel
+loop calculation can be considered independently of the requirements of 
+the other parallel loops.
+
+Based on ideas from FFTW, we construct for each parallel loop an execution
+``plan'' which is a customized blocking of the execution on the GPU 
+for that loop, making optimum use of the local shared memory on each 
+multiprocessor considering in detail the memory requirements of the loop 
+computation.  
+
+\subsection{Renumbering}
+
+The execution plans construct mini-partitions by breaking the set being
+looped over into a number of contiguous blocks. This is good for direct
+datasets since they will be contiguous and it will lead to coalesced 
+memory transfers.  However, for indirect datasets we want to make sure 
+that each mini-partition references elements which are held close together
+in the graphics memory.
+
+An initial step (which has not yet been implemented: see the ``To Do list'' 
+at the end of this document) is therefore to reorder/renumber all sets 
+to improve data locality, so that neighboring nodes or edges have 
+indices, and therefore memory locations, which are close to each other. 
+There are lots of ways in which this might be done, but one simple 
+effective way which we have used in the past is recursive coordinate 
+bisection.  
+%For a 3D dataset, one would first bisect each set in the $x$-direction, 
+%then the $y$-direction, then the $z$-direction, and then repeat the 
+%sequence recursively to build up a binary tree whose leaves are then 
+%numbered sequentially.
+
+\subsection{Some rough numbers for HYDRA}
+
+A big calculation by the Rolls-Royce HYDRA CFD code will use most 
+of the 6GB on a C2070 card. Given that the local shared-memory size 
+is 48kB, this suggests that the data intensive parallel loops will have 
+over 100,000 blocks. 
+%\footnote{On the one hand, this will be an underestimate 
+%since some of the data will be used by more than one block, 
+%but on the other hand it will be an overestimate 
+%because not all of the data will be needed for just one loop.}
+10 block colors might be needed to avoid data conflicts, suggesting 
+up to 10,000 blocks per color.  
+%Given this number it doesn't matter if there are variations in 
+%the amount of compute per block; the important thing is to make 
+%sure each block uses as much shared memory as possible.
+
+HYDRA needs up to 40 floats per grid node.  16kB corresponds
+to 4000 floats which is equivalent to 100 nodes, which is 
+roughly $5^3$.  This should be big enough to get a fair degree 
+of re-use of nodal data within the block, maybe 50\% of
+maximum.  The block may have 400 edges, with maybe 40 per 
+color so we need to use color-locked increments, with thread 
+synchronization in between colors.
+
+%A typical big CFD calculation (such as Rolls-Royce's HYDRA code) 
+%may need 50-200 plans each of which may be executed more than once 
+%during a single timestep or multigrid iteration.
+
+\newpage
 
 \section{Plan construction}
 
@@ -147,7 +335,7 @@ of the same color reference the same indirect dataset element.
 
 Conceptually, for each indirect dataset element we maintain
 a list of the colors of the elements which reference it. 
-Starting with this list initialised to be empty, the mathematical
+Starting with this list initialized to be empty, the mathematical
 algorithm treats each set element in turn and performs the 
 following steps:
 \begin{itemize}
@@ -178,7 +366,7 @@ but when it is not, the code loops back. i.e.~in the first pass,
 if the first step finds that all bits are already set, it doesn't 
 assign a color to the element, and goes on to the next element.
 Then at the end it goes back to process the elements which have 
-not yet been colored, with the color lists re-initialised to
+not yet been colored, with the color lists re-initialized to
 indicate that the indirect set elements are not referenced by 
 any of the ``new'' colors.  This outer loop (controlled by the 
 variable {\tt repeat}) is repeated until all elements have been 
@@ -224,7 +412,7 @@ the number of blocks of each color
 
 \begin{figure}
 \begin{center}
-{\setlength{\unitlength}{0.25in}\begin{picture}(20,5.5)
+{\setlength{\unitlength}{0.23in}\begin{picture}(20,5.5)(-1,0)
 
 \multiput(0,4)(1,0){20}{\framebox(1,1){}}
 \multiput(0,0)(1,0){20}{\framebox(1,1){}}
@@ -331,8 +519,131 @@ This routine checks the correctness of various aspects of a plan.  The checks
 are performed automatically after the plan is constructed, depending on the
 value of the diagnostics variable {\tt OP\_DIAGS}.
 
+\newpage
+
+\section{Data layout}
+
+One key implementation choice is how to store datasets in which there are 
+multiple items for each set element.  For example, in the ``airfoil'' testcase 
+there are four flow variables for each cell.
+
+The two alternatives are:
+\begin{itemize}
+\item SoA: for each component, store the data for all of the set elements
+      as a contiguous block.
+\item AoS: for each set element, store all of the components together
+      as a small contiguous block;
+\end{itemize}
+
+The SoA format (which corresponds to what is referred to as 
+``a struct of arrays'') is what used to be used on CRAY vector computers 
+25 years ago.  It is ideally suited for systems which stream data into and 
+out of the processing unit, and a number of GPU programmers believe it is 
+the best approach for GPUs as well because it leads to natural coalescence 
+in memory transfers.
+
+The AoS format (which corresponds to the alternative ``array of structs'') 
+is the preferred choice for systems with a cache hierarchy.  
+Assuming that all of the components are used within the computation, this 
+exploits spatial locality within a cache line; having loaded a cache line to 
+access one component, the other components are immediately available as well.
+
+To understand the tradeoff between these two storage formats, we need to consider
+cache line efficiency, the extent to which a computation uses all of the data in
+a cache line.  In the ``airfoil'' testcase we need 4 floats per cell, and the
+Fermi cache line size is 128 bytes, corresponding to 32 floats.  When data is 
+accessed indirectly, the SoA format can lead to a worst-case scenario in which
+only 1/32 of the cache line is used, whereas with the AoS format the worst case
+is that only 1/8 of the cache line is used.  Hence, in extreme cases with almost
+random addressing, the AoS format could be 4 times more efficient than the SoA 
+format, and therefore require 1/4 of the data transfer from the graphics memory
+to the GPU relative to SoA.  The savings could be even larger for applications 
+with more data per set element.
+
+Another way of looking at this is that if there are $K$ data items per set 
+element, then the SoA format with a cache line of size $S$ will have the same
+cache line efficiency as the AoS format with a cache line of size $KS$. 
+Hence, the AoS format increases the cache line size relative to the SoA format, 
+and therefore decreases the cache line efficiency.
+
+For this reason, I have chosen to use the AoS format. The potential disadvantage
+of this choice is that it destroys the natural memory coalescence of the SoA 
+format for direct loops.  However, the memory coalescence is still achieved in 
+OP2 through some additional programming effort.
+
+\subsection{direct loops}
+
+To achieve memory coalescence for direct loops we need to use shared memory.
+As shown below in an example taken from {\tt save\_soln\_kernel.cu} in 
+the ``airfoil'' testcase, the threads in a CUDA warp use a coalesced memory 
+transfer to load into shared memory, and then copy it into local arrays which 
+the {\tt nvcc} compiler will map to registers.
+\begin{verbatim}
+  for (int m=0; m<4; m++)                                                       
+    ((float *)arg_s)[tid+m*nelems] = arg0[tid+m*nelems+offset*4];               
+                                                                                
+  for (int m=0; m<4; m++)                                                       
+    arg0_l[m] = ((float *)arg_s)[m+tid*4];                                      
+\end{verbatim}
+Here \verb!tid=threadIdx.x%OP_WARPSIZE! is the thread ID (modulo the warpsize) 
+and {\tt nelems} is the number of active threads in the warp; this is usually
+equal to the warpsize, but if the set size is not an integer multiple of
+the warpsize then there's a final warp in which some threads are not active.
+
+Usually when using shared memory one has to use {\tt \_\_syncthreads} 
+to synchronize the actions of different warps.  However, this has a significant
+impact on the overall performance, and is avoided by giving each warp its own 
+separate shared memory ``scratchpad'' to work in so there are no conflicts 
+between different warps.  This is accomplished by the declaration:
+\begin{verbatim}
+  char *arg_s = shared + offset_s*(threadIdx.x/OP_WARPSIZE);                      
+\end{verbatim}
+with the scratchpad size {\tt offset\_s} set to be large enough to handle
+each of the datasets being loaded.
+
+The same technique is used in reverse for coalesced writing back to the
+graphics memory:
+\begin{verbatim}
+  for (int m=0; m<4; m++)                                                       
+    ((float *)arg_s)[m+tid*4] = arg1_l[m];                                      
+                                                                                
+  for (int m=0; m<4; m++)                                                       
+    arg1[tid+m*nelems+offset*4] = ((float *)arg_s)[tid+m*nelems];               
+\end{verbatim}
+
+Note: this treatment is only needed when there is more than one data element
+per set element.  When there is only one, there is no need to pre-load it into 
+a register; the user kernel can load it directly from device memory in a
+single coalesced transfer.
 
 \newpage
+\subsection{indirect loops}
+
+In indirect loops the loading of data from graphics memory into shared 
+memory involves code of the following form, taken from 
+{\tt res\_calc\_kernel.cu} in the ``airfoil'' testcase.
+\begin{verbatim}
+  for (int n=threadIdx.x; n<ind_arg1_size*4; n+=blockDim.x)                       
+    ind_arg1_s[n] = ind_arg1[n%4+ind_arg1_map[n/4]*4];                            
+\end{verbatim}                                                                                  
+Here \verb!ind_arg1_map[]! is an array giving the indices of the set 
+elements to be loaded.  This example has 4 components of data per set 
+element.  Hence the first 4 threads load the data for the first element, 
+the next 4 threads load the data for the second element, and so on.
+
+Since the indices in \verb!ind_arg1_map[]! are sorted in ascending order,
+the indices into the array \verb!ind_arg1! are also in ascending order.
+This maximizes the degree of memory coalescence achievable. Each cache line
+will be accessed by at most two consecutive warps, which minimizes the 
+reliance on L1 and L2 caches. This is important because in the future we
+may want to turn off L1 caching (using the compiler flag {\tt -Xptxas -dlcm=cg}; 
+see section G.4.2 in the CUDA Programming Guide) so that the L1 cache 
+memory is instead reserved exclusively for register spills.
+
+Writing indirect datasets back to graphics memory is accomplished in a 
+similar manner.
+
+%\newpage
 
 \section{op2.m preprocessor}
 
@@ -375,7 +686,7 @@ by {\tt \bf plan}.
 Finally, for global reductions it fetches the output data back
 to the CPU.
 
-\newpage
+%\newpage
 
 \subsection{the CUDA kernel routine}
 
@@ -426,7 +737,7 @@ memory
 
 \end{itemize}
 
-\newpage
+%\newpage
 
 Note: it is likely that the compiler will put small local arrays of 
 known size into registers.  This is why users should specify
@@ -440,7 +751,7 @@ The variable {\tt nelems2} is equal to this value rounded up to the
 nearest multiple of the number of threads in the thread block.
 This ensures that every thread goes through the main loop the same 
 number of times.  This is important because the thread synchronization 
-command {\tt \_\_syncthreads();} must be called by all threads.
+command {\tt \_\_syncthreads} must be called by all threads.
 The {\tt if} test within the loop prevents execution for elements
 beyond the end of the block, and the default color is set to ensure
 no participation in the colored increment.
@@ -450,7 +761,7 @@ no participation in the colored increment.
 
 The generated code includes a number of pointers which are computed 
 by thread 0 and held in shared memory.  This is because the same values 
-are needed for all threads, and this minimises register usage.
+are needed for all threads, and this minimizes register usage.
 
 
 \subsection{the new source file}
@@ -482,9 +793,9 @@ constants to have global scope over all kernel files.
 \subsection{Summation}
 
 Each thread block has a separate entry in a device GPU array which is 
-initialised to zero.
+initialized to zero.
 
-Each thread sums its contributions, with the sum being initialised to zero.
+Each thread sums its contributions, with the sum being initialized to zero.
 The combined contributions from a single thread block are then combined 
 in a binary tree reduction process modelled on that the SDK ``reduction'' 
 example, using shared memory.  
@@ -497,9 +808,9 @@ transferred back to the CPU and added to the original starting value.
 
 The treatment of min/max reductions is very similar. Each thread block 
 again has a separate entry in a device GPU array, but in this case 
-it is initialised to the initial CPU input value.
+it is initialized to the initial CPU input value.
 
-At the thread level the minimum/maximum is initialised using the current 
+At the thread level the minimum/maximum is initialized using the current 
 global value for that block, and then updated using the thread's subsequent 
 contributions.  A binary tree approach combines these to form a thread 
 block minimum/maximum.
@@ -508,119 +819,200 @@ The thread block minimum/maximum values are used to update the global value.
 Once the CUDA kernel call is complete the final block values are transferred 
 back to the CPU and combined to give the overall minimum/maximum.
 
-%\newpage
-
-\section{User-defined datatypes}
-
-OP2 supports user-defined datatypes for datasets, global constants, local constants 
-and global reductions.
-
-\subsection{Run-time type-checking}
-
-%I considered using {\tt type\_id()} to check that user-defined types 
-%match the type string declared by the user.  However, it appears this 
-%is very compiler-dependent and not portable.
-
-Run-time type-checking is implemented in a portable way in which the user 
-is required to provide a {\tt type\_error} routine for each user-defined 
-datatype.  The {\tt type\_error} routines for the standard datatypes are 
-defined in {\tt op\_datatypes.h}.  
-
-\subsection{Zero element for incrementing}
-
-When executing {\tt op\_par\_loop} for a case in which a dataset is 
-incremented, the CUDA code which is generated by {\bf op2.m} 
-initialises the increment to zero, calls the user-supplied kernel
-function to compute/add the new increment, and then uses coloring to 
-add the increment to the dataset.
-
-With a user-defined datatype, the addition in the last step requires
-that the user has defined an overloaded addition operator.  The user
-also has to specify a zero element, called {\tt ZERO\_typename},
-which is used in the first step to initialise the increment correctly.
-
-The zero elements for the standard datatypes are defined in 
-{\tt op\_datatypes.h}.  Note that {\tt typedef} is used to alias 
-{\tt unsigned int}, {\tt long long} and {\tt unsigned long long} to 
-{\tt uint}, {\tt ll} and {\tt ull}, respectively.  This is because 
-{\tt typename} must not contain any spaces, otherwise there are problems
-with the compiler parsing of {\tt ZERO\_typename}.
-
-\subsection{Global reductions}
+\subsection{User-defined datatypes}
 
 Summations should be fine, and min/max reductions also ought to work 
 provided the user has correctly overloaded the inequality operators 
 so that for all $a, b, c$, 
 \begin{itemize}
-\item\vspace*{-0.1in} $a\!>\!b\ \cap\ b\!>\!c\ \Longrightarrow\ a\!>\!c$ 
-           ~~ and ~~   $a\!<\!b\ \cap\ b\!<\!c\ \Longrightarrow\ a\!<\!c$ 
+\item\vspace*{-0.1in} $a\!>\!b,\  b\!>\!c\ \Longrightarrow\ a\!>\!c$ 
+           ~~ and ~~   $a\!<\!b,\ \ b\!<\!c\ \Longrightarrow\ a\!<\!c$ 
 \item\vspace*{-0.1in}  either $a\!<\!b$, or $a\!>\!b$, or $a\!=\!b$
 \end{itemize}
 
-
-\subsection{Alignment padding}
-
-When user-defined datatypes have elements with different sizes, the 
-compiler automatically introduces padding to ensure correct data 
-alignment, plus padding at the end, if necessary, to ensure that 
-the next element in an array starts with the correct alignment.
-
-However, when using dynamic shared memory in CUDA, it is the 
-programmer's responsibility to ensure the correct alignment, as 
-explained in section B.2.3 of the CUDA Programming Guide, version 3.0.
-This requires the use of a {\tt ROUND\_UP} macro in {\bf op\_lib.cu}
-and the CUDA kernels generated by {\bf op2.m}.  This macro is
-modelled on the macro {\tt ALIGN\_UP} in the Programming Guide.
-
-Similar padding is used in assembling local constants and global
-reduction values into contiguous arrays for transfer to/from the GPU. 
-
-\subsection{Future MPI treatment}
-
-Looking to the future, MPI messaging will be performed by treating all 
-datasets as having elements of type {\tt MPI\_CHAR} with the appropriate
-byte size.  The only minor issue with this is the inability to use 
-standard MPI reduction operators, but this could be handled by
+In the future, the MPI implementation could be handled by
 implementing an all-to-all data exchange followed by local reduction,
-with an option for MPI reductions being used for standard datatypes.
+with an option for standard MPI reductions to be used for standard datatypes.
 
 
 %\newpage
+%
+%\section{User-defined datatypes}
+%
+%OP2 supports user-defined datatypes for datasets and constants.
+%
+%\subsection{Run-time type-checking}
+%
+%Run-time type-checking is implemented in a portable way in which the user 
+%is required to provide a {\tt type\_error} routine for each user-defined 
+%datatype.  The {\tt type\_error} routines for the standard datatypes are 
+%defined in {\tt op\_datatypes.h}.  
+%
+%\subsection{Zero element for incrementing}
+%
+%When executing {\tt op\_par\_loop} for a case in which a dataset is 
+%incremented, the CUDA code which is generated by {\bf op2.m} 
+%initializes the increment to zero, calls the user-supplied kernel
+%function to compute/add the new increment, and then uses coloring to 
+%add the increment to the dataset.
+%
+%With a user-defined datatype, the addition in the last step requires
+%that the user has defined an overloaded addition operator.  The user
+%also has to specify a zero element, called {\tt ZERO\_typename},
+%which is used in the first step to initialize the increment correctly.
+%
+%The zero elements for the standard datatypes are defined in 
+%{\tt op\_datatypes.h}.  Note that {\tt typedef} is used to alias 
+%{\tt unsigned int}, {\tt long long} and {\tt unsigned long long} to 
+%{\tt uint}, {\tt ll} and {\tt ull}, respectively.  This is because 
+%{\tt typename} must not contain any spaces, otherwise there are problems
+%with the compiler parsing of {\tt ZERO\_typename}.
+%
+%\subsection{Global reductions}
+%
+%Summations should be fine, and min/max reductions also ought to work 
+%provided the user has correctly overloaded the inequality operators 
+%so that for all $a, b, c$, 
+%\begin{itemize}
+%\item\vspace*{-0.1in} $a\!>\!b,\  b\!>\!c\ \Longrightarrow\ a\!>\!c$ 
+%           ~~ and ~~   $a\!<\!b,\ \ b\!<\!c\ \Longrightarrow\ a\!<\!c$ 
+%\item\vspace*{-0.1in}  either $a\!<\!b$, or $a\!>\!b$, or $a\!=\!b$
+%\end{itemize}
+%
+%In the future, the MPI implementation could be handled by
+%implementing an all-to-all data exchange followed by local reduction,
+%with an option for standard MPI reductions to be used for standard datatypes.
+%
+%\subsection{Alignment padding}
+%
+%When user-defined datatypes have elements with different sizes, the 
+%compiler automatically introduces padding to ensure correct data 
+%alignment, plus padding at the end, if necessary, to ensure that 
+%the next element in an array starts with the correct alignment.
+%
+%However, when using dynamic shared memory in CUDA, it is the 
+%programmer's responsibility to ensure the correct alignment, as 
+%explained in section B.2.3 of the CUDA Programming Guide, version 3.0.
+%This requires the use of a {\tt ROUND\_UP} macro in {\bf op\_lib.cu}
+%and the CUDA kernels generated by {\bf op2.m}.  This macro is
+%modelled on the macro {\tt ALIGN\_UP} in the Programming Guide.
+%
+%Similar padding is used in assembling local constants and global
+%reduction values into contiguous arrays for transfer to/from the GPU. 
 
-\section{CUDA 3.0 notes: 20/02/10}
 
-Having read the new CUDA 3.0 Programmer's Guide and the guide on
-Tuning CUDA Applications for Fermi, here I make a few notes which 
-I should read over again in the future.
 
+\newpage
+
+\section{OpenMP and SSE/AVX implementation}
+
+
+Intel's Nehalem CPUs have a separate on-chip 256KB L2 cache for each 
+core, and have at least 200GB/s bandwidth from the L2 cache to the core.
+Because of this, the simplest approach to an OpenMP implementation is 
+to follow a very similar approach to the GPU implementation but with a 
+single thread for each mini-partition. That way, there's no data conflict 
+within a mini-partition, and the OpenMP parallelism applies to the loop 
+over all of the mini-partitions of a particular color. 
+At present the OpenMP implementation follows the CUDA implementation in 
+using local renumbering, but this is not required and should be removed
+in the future.  In addition, no thread coloring is required.
+
+A similar strategy could be used for SSE/AVX vectorization as well, 
+with each SSE/AVX vector element handling a different mini-partition. 
+The mini-partitions would need to be reduced in size so that the 
+required number (up to 8 for single precision computation in AVX) 
+can fit into the 256KB L2 cache.
+
+There is a potentially irritating implementation detail concerning the 
+fact that the set size will usually not be an exact multiple of the number 
+of threads times the length of the SSE/AVX vectors.  By using recursive 
+bisection, the number of partitions can be made a power of 2, and their 
+size made equal to within a maximum discrepancy of 1.  I think it should 
+be possible to color the mini-partitions so that the number of 
+mini-partitions of each color is a multiple of the length of the SSE/AVX 
+vectors.  The only problem then is that the final SSE/AVX vector for
+each mini-partition may not be complete, due to the difference in size of
+the mini-partitions.  I think this can be dealt with by replicating one 
+of the final elements to fill the empty bits of the vector.  The redundant 
+computations will not affect the final outcome.  The same trick can be 
+used to replicate an entire mini-partition if the number of mini-partitions 
+of one color is not a multiple of the length of the SSE/AVX vectors. 
+
+This should result in very clean, efficient OpenMP SSE/AVX code.  The 
+complexity will all be hidden in the plan construction.
+
+\newpage
+
+\section{Auto-tuning}
+
+To optimize the run-time performance, I think it will be essential 
+to use auto-tuning techniques, building on ideas already used by 
+packages such as ATLAS and FFTW.  To emphasize this point, I don't 
+think I am talking about squeezing out an extra 10\% of performance; 
+I think it is more likely that auto-tuning will double the performance.
+
+
+Here I list some of the choices to be optimized, and the tradeoffs
+they involve:
 \begin{itemize}
 \item
-should think about turning off L1 caching of global data so L1 cache is 
-preserved for register spilling of local variables
+Size of block partition
+
+To maximize date reuse within each block, the natural choice is 
+to make the block partition as large as possible subject to the
+constraint that it fits inside the shared memory.  However, 
+making it a bit smaller would allow multiple blocks to run 
+concurrently on the same multiprocessor, and the run-time 
+scheduler would then naturally overlap I/O for one block
+with computation for another.
 
 \item
-should use the {\tt restrict} qualifier to enable compiler optimization
+Number of threads per block
 
-\item
-new LDU instruction will be good for local constants; must make sure to use
-{\tt const} qualifier
-
-\item
-use 48kB shared memory for kernels with indrect datasets, and
-48kB L1 cache for those without
-
-\item
-L2 cache has the equivalent of 48kB per SM, as much as the maximum 
-shared memory, so maybe it would be good to use it?  But on the other 
-hand, the effective size is smaller (as it also stores data which is 
-not wanted) and we're unlikely to be able to achieve a perfect 
-allocation of data to shared memory and cached global memory, so 
-maybe it's not worth worrying about?
-
-\item
-no point in using texture mapping?
+One option is to have one thread per set element, giving the 
+run-time scheduler the maximum freedom.  However, this increases
+the cost of thread synchronization, might run into difficulties 
+with the total register usage, and doesn't amortize startup 
+costs over multiple elements.
 
 \end{itemize}
+
+
+These choices exist for each parallel loop, but what is optimal 
+for one loop may not be optimal for another.
+Optimization strategies which could be used include:
+\begin{itemize}
+\item
+Brute force exhaustive search
+
+%Specify a small set of possible values for the integer variables
+%(block partition size and number of threads per block) and then 
+%systematically try every combination of choices and values.
+%
+%This would be particularly applicable if, perhaps through 
+%profiling, the user can identify the most important loop(s).
+
+\item
+Genetic algorithms (or other stochastic method)
+
+%Brute force could work at the level of a single loop.  To handle
+%lots of loops, one either uses brute force on each one, one at 
+%a time, or one could perhaps use a higher-dimensional method
+%like GA to optimize them all at the same time.
+
+\item
+Run-time optimization
+
+%In some cases, the optimal choice/value may depend on the specifics 
+%of the problem being solved, i.e.~may depend on the run-time data.
+%If an application requires many timesteps or iterations, it could 
+%be feasible at the beginning to try different choices/values for
+%different timesteps/iterations and monitor the execution times to
+%decide on the best combination.
+
+\end{itemize}
+
 
 \newpage
 
@@ -651,6 +1043,10 @@ rather than using local variables to hold the temporary increments.
 Within a thread block, could reorder elements to reduce the number of 
 different colors within each warp.  This would require the storage and 
 fetching of the permuted identity mapping 
+
+\item
+Should use the {\tt restrict} qualifier where appropriate to enable 
+compiler optimization
 
 \end{itemize}
 

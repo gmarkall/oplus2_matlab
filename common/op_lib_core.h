@@ -27,13 +27,13 @@
 * SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 */
 
-
 //
-// OP datatypes
+// essential typedefs
 //
 
-#ifndef OP_DATATYPES
-#define OP_DATATYPES
+typedef unsigned int uint;
+typedef long long ll;
+typedef unsigned long long ull;
 
 //
 // OP diagnostics level; defined in op_seq.cpp/op_lib.cu and set in op_init
@@ -55,41 +55,6 @@ extern int OP_diags;
 //
 
 enum op_access   { OP_READ, OP_WRITE, OP_RW, OP_INC, OP_MIN, OP_MAX };
-
-//
-// run-time type-checking routines
-//
-
-typedef long long ll;
-typedef unsigned long long ull;
-
-inline int type_error(const double *,const char *type){return strcmp(type,"double");}
-inline int type_error(const float  *,const char *type){return strcmp(type,"float" );}
-inline int type_error(const int    *,const char *type){return strcmp(type,"int"   );}
-inline int type_error(const uint   *,const char *type){return strcmp(type,"uint"  );}
-inline int type_error(const ll     *,const char *type){return strcmp(type,"ll"    );}
-inline int type_error(const ull    *,const char *type){return strcmp(type,"ull"   );}
-inline int type_error(const bool   *,const char *type){return strcmp(type,"bool"  );}
-
-//
-// add in user's datatypes
-//
-
-#ifdef OP_USER_DATATYPES
-#include <OP_USER_DATATYPES>
-#endif
-
-//
-// zero constants
-//
-
-#define ZERO_double  0.0;
-#define ZERO_float   0.0f;
-#define ZERO_int     0;
-#define ZERO_uint    0;
-#define ZERO_ll      0;
-#define ZERO_ull     0;
-#define ZERO_bool    0;
 
 //
 // structures
@@ -121,19 +86,14 @@ typedef struct {
              *name;   // name of dataset
 } op_dat;
 
-// identity mapping
-#define OP_ID  (op_map) {{0,0,"null"},{0,0,"null"},0,-1,NULL,"id"}
-
-// global identifier
-#define OP_GBL (op_map) {{0,0,"null"},{0,0,"null"},0,-2,NULL,"gbl"}
-
 typedef struct {
   // input arguments
   char const  *name;
   int          set_index, nargs;
   int         *arg_idxs, *idxs, *map_idxs, *dims;
   char const **typs;
-  op_access   *accs;
+  enum op_access   *accs;
+  int          part_size;
 
   // execution plan
   int        *nthrcol;  // number of thread colors for each block
@@ -177,44 +137,3 @@ typedef struct {
 //
 
 #define ROUND_UP(bytes) (((bytes) + 15) & ~15)
-
-//
-// OP function prototypes
-//
-
-void op_init(int, char **, int);
-
-void op_decl_set(int, op_set &, char const *);
-
-void op_decl_map(op_set, op_set, int, int *, op_map &, char const *);
-
-void op_decl_dat_char(op_set, int, char const *, int, char *, op_dat &, char const *);
-
-template < class T >
-void op_decl_dat(op_set set, int dim, char const *type, T *dat, op_dat &data, char const *name){
-  if (type_error(dat,type)) {
-    printf("incorrect type specified for dataset \"%s\" \n",name);  exit(1);
-  }
-  op_decl_dat_char(set, dim, type, sizeof(T), (char *)dat, data, name);
-}
-
-void op_decl_const_char(int, char const *, int, char *, char const *);
-
-template < class T >
-void op_decl_const(int dim, char const *type, T *dat, char const *name){
-  if (type_error(dat,type)) {
-    printf("incorrect type specified for constant \"%s\" \n",name);  exit(1);
-  }
-  op_decl_const_char(dim, type, sizeof(T), (char *)dat, name);
-}
-
-void op_fetch_data(op_dat);
-
-void op_diagnostic_output();
-
-void op_timing_output();
-
-void op_exit();
-
-#endif
-

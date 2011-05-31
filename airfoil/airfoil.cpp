@@ -184,13 +184,13 @@ int main(int argc, char **argv){
   op_decl_dat(cells ,1,"float",adt  ,p_adt  ,"p_adt");
   op_decl_dat(cells ,4,"float",res  ,p_res  ,"p_res");
 
-  op_decl_const(1,"float",&gam  ,"gam");
-  op_decl_const(1,"float",&gm1  ,"gm1");
-  op_decl_const(1,"float",&cfl  ,"cfl");
-  op_decl_const(1,"float",&eps  ,"eps");
-  op_decl_const(1,"float",&mach ,"mach");
-  op_decl_const(1,"float",&alpha,"alpha");
-  op_decl_const(4,"float",qinf  ,"qinf");
+  op_decl_const(1,"float",&gam  );
+  op_decl_const(1,"float",&gm1  );
+  op_decl_const(1,"float",&cfl  );
+  op_decl_const(1,"float",&eps  );
+  op_decl_const(1,"float",&mach );
+  op_decl_const(1,"float",&alpha);
+  op_decl_const(4,"float",qinf  );
 
   op_diagnostic_output();
 
@@ -202,9 +202,9 @@ int main(int argc, char **argv){
 
 //  save old flow solution
 
-    op_par_loop_2(save_soln,"save_soln", cells,
-                  p_q,   -1,OP_ID, 4,"float",OP_READ,
-                  p_qold,-1,OP_ID, 4,"float",OP_WRITE);
+    op_par_loop(save_soln,"save_soln", cells,
+                p_q,   -1,OP_ID, 4,"float",OP_READ,
+                p_qold,-1,OP_ID, 4,"float",OP_WRITE);
 
 //  predictor/corrector update loop
 
@@ -212,44 +212,44 @@ int main(int argc, char **argv){
 
 //    calculate area/timstep
 
-      op_par_loop_6(adt_calc,"adt_calc",cells,
-                    p_x,   0,pcell, 2,"float",OP_READ,
-                    p_x,   1,pcell, 2,"float",OP_READ,
-                    p_x,   2,pcell, 2,"float",OP_READ,
-                    p_x,   3,pcell, 2,"float",OP_READ,
-                    p_q,  -1,OP_ID, 4,"float",OP_READ,
-                    p_adt,-1,OP_ID, 1,"float",OP_WRITE);
+      op_par_loop(adt_calc,"adt_calc",cells,
+                  p_x,   0,pcell, 2,"float",OP_READ,
+                  p_x,   1,pcell, 2,"float",OP_READ,
+                  p_x,   2,pcell, 2,"float",OP_READ,
+                  p_x,   3,pcell, 2,"float",OP_READ,
+                  p_q,  -1,OP_ID, 4,"float",OP_READ,
+                  p_adt,-1,OP_ID, 1,"float",OP_WRITE);
 
 //    calculate flux residual
 
-      op_par_loop_8(res_calc,"res_calc",edges,
-                    p_x,    0,pedge, 2,"float",OP_READ,
-                    p_x,    1,pedge, 2,"float",OP_READ,
-                    p_q,    0,pecell,4,"float",OP_READ,
-                    p_q,    1,pecell,4,"float",OP_READ,
-                    p_adt,  0,pecell,1,"float",OP_READ,
-                    p_adt,  1,pecell,1,"float",OP_READ,
-                    p_res,  0,pecell,4,"float",OP_INC,
-                    p_res,  1,pecell,4,"float",OP_INC);
+      op_par_loop(res_calc,"res_calc",edges,
+                  p_x,    0,pedge, 2,"float",OP_READ,
+                  p_x,    1,pedge, 2,"float",OP_READ,
+                  p_q,    0,pecell,4,"float",OP_READ,
+                  p_q,    1,pecell,4,"float",OP_READ,
+                  p_adt,  0,pecell,1,"float",OP_READ,
+                  p_adt,  1,pecell,1,"float",OP_READ,
+                  p_res,  0,pecell,4,"float",OP_INC,
+                  p_res,  1,pecell,4,"float",OP_INC);
 
-      op_par_loop_6(bres_calc,"bres_calc",bedges,
-                    p_x,     0,pbedge, 2,"float",OP_READ,
-                    p_x,     1,pbedge, 2,"float",OP_READ,
-                    p_q,     0,pbecell,4,"float",OP_READ,
-                    p_adt,   0,pbecell,1,"float",OP_READ,
-                    p_res,   0,pbecell,4,"float",OP_INC,
-                    p_bound,-1,OP_ID  ,1,"int",  OP_READ);
+      op_par_loop(bres_calc,"bres_calc",bedges,
+                  p_x,     0,pbedge, 2,"float",OP_READ,
+                  p_x,     1,pbedge, 2,"float",OP_READ,
+                  p_q,     0,pbecell,4,"float",OP_READ,
+                  p_adt,   0,pbecell,1,"float",OP_READ,
+                  p_res,   0,pbecell,4,"float",OP_INC,
+                  p_bound,-1,OP_ID  ,1,"int",  OP_READ);
 
 //    update flow field
 
       rms = 0.0;
 
-      op_par_loop_5(update,"update",cells,
-                    p_qold,-1,OP_ID, 4,"float",OP_READ,
-                    p_q,   -1,OP_ID, 4,"float",OP_WRITE,
-                    p_res, -1,OP_ID, 4,"float",OP_RW,
-                    p_adt, -1,OP_ID, 1,"float",OP_READ,
-                    &rms,  -1,OP_GBL,1,"float",OP_INC);
+      op_par_loop(update,"update",cells,
+                  p_qold,-1,OP_ID, 4,"float",OP_READ,
+                  p_q,   -1,OP_ID, 4,"float",OP_WRITE,
+                  p_res, -1,OP_ID, 4,"float",OP_RW,
+                  p_adt, -1,OP_ID, 1,"float",OP_READ,
+                  &rms,  -1,OP_GBL,1,"float",OP_INC);
     }
 
 //  print iteration history

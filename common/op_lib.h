@@ -1,0 +1,153 @@
+/*
+  Open source copyright declaration based on BSD open source template:
+  http://www.opensource.org/licenses/bsd-license.php
+
+* Copyright (c) 2009, Mike Giles
+* All rights reserved.
+*
+* Redistribution and use in source and binary forms, with or without
+* modification, are permitted provided that the following conditions are met:
+*     * Redistributions of source code must retain the above copyright
+*       notice, this list of conditions and the following disclaimer.
+*     * Redistributions in binary form must reproduce the above copyright
+*       notice, this list of conditions and the following disclaimer in the
+*       documentation and/or other materials provided with the distribution.
+*     * The name of Mike Giles may not be used to endorse or promote products
+*       derived from this software without specific prior written permission.
+*
+* THIS SOFTWARE IS PROVIDED BY Mike Giles ''AS IS'' AND ANY
+* EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
+* WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+* DISCLAIMED. IN NO EVENT SHALL Mike Giles BE LIABLE FOR ANY
+* DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES
+* (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;
+* LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND
+* ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
+* (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
+* SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+*/
+
+
+//
+// include core definitions
+//
+
+#include "op_lib_core.h"
+
+//
+// run-time type-checking routines
+//
+
+inline int type_error(const double *,const char *type){return strcmp(type,"double");}
+inline int type_error(const float  *,const char *type){return strcmp(type,"float" );}
+inline int type_error(const int    *,const char *type){return strcmp(type,"int"   );}
+inline int type_error(const uint   *,const char *type){return strcmp(type,"uint"  );}
+inline int type_error(const ll     *,const char *type){return strcmp(type,"ll"    );}
+inline int type_error(const ull    *,const char *type){return strcmp(type,"ull"   );}
+inline int type_error(const bool   *,const char *type){return strcmp(type,"bool"  );}
+
+//
+// add in user's datatypes
+//
+
+#ifdef OP_USER_DATATYPES
+#include <OP_USER_DATATYPES>
+#endif
+
+//
+// zero constants
+//
+
+#define ZERO_double  0.0;
+#define ZERO_float   0.0f;
+#define ZERO_int     0;
+#define ZERO_uint    0;
+#define ZERO_ll      0;
+#define ZERO_ull     0;
+#define ZERO_bool    0;
+
+
+// identity mapping
+#define OP_ID  (op_map) {{0,0,"null"},{0,0,"null"},0,-1,NULL,"id"}
+
+// global identifier
+#define OP_GBL (op_map) {{0,0,"null"},{0,0,"null"},0,-2,NULL,"gbl"}
+
+//
+// external variables declared in op_lib_core.cpp
+//
+
+extern int        OP_diags, OP_part_size, OP_block_size;
+extern op_kernel *OP_kernels;
+
+//
+// OP function prototypes
+//
+
+extern "C"
+void op_init_core(int, char **, int);
+void op_init(int, char **, int);
+
+extern "C"
+void op_decl_set_core(int, op_set *, char const *);
+void op_decl_set(int, op_set &, char const *);
+
+extern "C"
+void op_decl_map_core(op_set, op_set, int, int *, op_map *, char const *);
+void op_decl_map(op_set, op_set, int, int *, op_map &, char const *);
+
+extern "C"
+void op_decl_dat_char(op_set, int, char const *, int, char *, op_dat *, char const *);
+
+void op_decl_const_char(int, char const *, int, char *, char const *);
+
+void op_fetch_data(op_dat);
+
+extern "C"
+void op_diagnostic_output();
+
+extern "C"
+void op_timing_output();
+
+extern "C"
+op_plan * plan(char const *, op_set, int, int, op_dat *, int *, op_map *, int *,
+               char const **, enum op_access *, int, int *);
+
+extern "C"
+void op_timers(double *, double *);
+
+extern "C"
+void op_timing_realloc(int);
+
+extern "C"
+void op_exit_core();
+void op_exit();
+
+//
+// templates for handling datasets and constants
+//
+
+template < class T >
+void op_decl_dat(op_set set, int dim, char const *type, T *dat,
+                                 op_dat &data, char const *name){
+  if (type_error(dat,type)) {
+    printf("incorrect type specified for dataset \"%s\" \n",name); exit(1);
+  }
+  op_decl_dat_char(set, dim, type, sizeof(T), (char *)dat, &data, name);
+}
+
+template < class T >
+void op_decl_const2(char const *name, int dim, char const *type, T *dat){
+  if (type_error(dat,type)) {
+    printf("incorrect type specified for constant \"%s\" \n",name); exit(1);
+  }
+  op_decl_const_char(dim, type, sizeof(T), (char *)dat, name);
+}
+
+template < class T >
+void op_decl_const(int dim, char const *type, T *dat){
+  if (type_error(dat,type)) {
+    printf("incorrect type specified for constant in op_decl_const"); exit(1);
+  }
+}
+
