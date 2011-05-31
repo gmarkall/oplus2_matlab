@@ -2,7 +2,7 @@
   Open source copyright declaration based on BSD open source template:
   http://www.opensource.org/licenses/bsd-license.php
 
-* Copyright (c) 2009, Mike Giles
+* Copyright (c) 2009-2011, Mike Giles
 * All rights reserved.
 *
 * Redistribution and use in source and binary forms, with or without
@@ -70,10 +70,6 @@ int main(int argc, char **argv){
 
   int   nnode, nedge, n, e;
   float dx;
-
-  op_set nodes, edges;
-  op_map ppedge;
-  op_dat p_A, p_r, p_u, p_du;
 
   nnode = (NN-1)*(NN-1);
   nedge = (NN-1)*(NN-1) + 4*(NN-1)*(NN-2);
@@ -144,15 +140,15 @@ int main(int argc, char **argv){
 
   // declare sets, pointers, and datasets
 
-  op_decl_set(nnode, nodes,"nodes");
-  op_decl_set(nedge, edges,"edges");
+  op_set nodes = op_decl_set(nnode, "nodes");
+  op_set edges = op_decl_set(nedge, "edges");
 
-  op_decl_map(edges,nodes,2,pp, ppedge,"ppedge");
+  op_map ppedge = op_decl_map(edges,nodes,2,pp, "ppedge");
 
-  op_decl_dat(edges,3,"double",A,  p_A, "p_A" );
-  op_decl_dat(nodes,2,"float", r,  p_r, "p_r" );
-  op_decl_dat(nodes,2,"float", u,  p_u, "p_u" );
-  op_decl_dat(nodes,3,"float", du, p_du,"p_du");
+  op_dat p_A  = op_decl_dat(edges,3,"double",A,  "p_A" );
+  op_dat p_r  = op_decl_dat(nodes,2,"float", r,  "p_r" );
+  op_dat p_u  = op_decl_dat(nodes,2,"float", u,  "p_u" );
+  op_dat p_du = op_decl_dat(nodes,3,"float", du, "p_du");
 
   alpha = 2.0f;
   op_decl_const(1,"float",&alpha);

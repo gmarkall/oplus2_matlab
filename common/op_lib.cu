@@ -96,7 +96,7 @@ inline void cutilDeviceInit(int argc, char **argv) {
 
 
 //
-// CUDA-specific initialisation
+// CUDA-specific initialisation and exit
 //
 
 void op_init(int argc, char **argv, int diags){
@@ -114,15 +114,6 @@ void op_init(int argc, char **argv, int diags){
 
   cutilSafeCall(cudaThreadSetCacheConfig(cudaFuncCachePreferShared));
   printf("\n 16/48 L1/shared \n");
-}
-
-void op_decl_set(int size, op_set &set, char const *name){
-  op_decl_set_core(size, &set, name); 
-}
-
-void op_decl_map(op_set from, op_set to, int dim, int *map,
-                 op_map &mapping, char const *name) {
-  op_decl_map_core(from, to, dim, map, &mapping, name);
 }
 
 void op_exit(){
@@ -152,7 +143,8 @@ void op_cpHostToDevice(void **dat_d, void **dat_h, int size) {
 }
 
 void op_fetch_data(op_dat data) {
-  cutilSafeCall(cudaMemcpy(data.dat, data.dat_d, data.size*data.set.size,
+  cutilSafeCall(cudaMemcpy(data->dat, data->dat_d,
+                           data->size*data->set->size,
                 cudaMemcpyDeviceToHost));
   cutilSafeCall(cudaThreadSynchronize());
 }

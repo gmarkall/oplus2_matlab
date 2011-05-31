@@ -54,46 +54,50 @@ extern int OP_diags;
 // enum list for op_par_loop
 //
 
-enum op_access   { OP_READ, OP_WRITE, OP_RW, OP_INC, OP_MIN, OP_MAX };
+typedef enum {OP_READ, OP_WRITE, OP_RW, OP_INC, OP_MIN, OP_MAX} op_access;
 
 //
 // structures
 //
 
 typedef struct {
-  int         size,   // number of elements in set
-              index;  // index into list of sets 
+  int         size;   // number of elements in set
   char const *name;   // name of set
-} op_set;
+} op_set_core;
+
+typedef op_set_core * op_set;
 
 typedef struct {
   op_set      from,   // set pointed from
               to;     // set pointed to
   int         dim,    // dimension of pointer
-              index,  // index into list of pointers
              *map;    // array defining pointer
   char const *name;   // name of pointer
-} op_map;
+} op_map_core;
+
+typedef op_map_core * op_map;
 
 typedef struct {
   op_set      set;    // set on which data is defined
   int         dim,    // dimension of data
-              index,  // index into list of datasets
               size;   // size of each element in dataset
   char       *dat,    // data on host
              *dat_d;  // data on device (GPU)
   char const *type,   // datatype
              *name;   // name of dataset
-} op_dat;
+} op_dat_core;
+
+typedef op_dat_core * op_dat;
 
 typedef struct {
   // input arguments
   char const  *name;
-  int          set_index, nargs;
-  int         *arg_idxs, *idxs, *map_idxs, *dims;
+  op_set       set;
+  op_map      *map;
+  op_dat      *arg;
+  int          nargs, *idxs, *dims, part_size;
   char const **typs;
-  enum op_access   *accs;
-  int          part_size;
+  op_access   *accs;
 
   // execution plan
   int        *nthrcol;  // number of thread colors for each block

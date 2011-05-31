@@ -2,7 +2,7 @@
   Open source copyright declaration based on BSD open source template:
   http://www.opensource.org/licenses/bsd-license.php
 
-* Copyright (c) 2009, Mike Giles
+* Copyright (c) 2009-2011, Mike Giles
 * All rights reserved.
 *
 * Redistribution and use in source and binary forms, with or without
@@ -30,7 +30,7 @@
 //
 //     Nonlinear airfoil lift calculation
 //
-//     Written by Mike Giles, 2010, based on FORTRAN code
+//     Written by Mike Giles, 2010-2011, based on FORTRAN code
 //     by Devendra Ghate and Mike Giles, 2005
 //
 
@@ -72,10 +72,6 @@ int main(int argc, char **argv){
 
   int    nnode,ncell,nedge,nbedge,niter;
   float  rms;
-
-  op_set nodes, edges, bedges, cells;
-  op_map pedge, pecell, pbedge, pbecell, pcell;
-  op_dat p_x, p_q, p_qold, p_res, p_adt, p_bound;
 
   // read in grid
 
@@ -166,23 +162,23 @@ int main(int argc, char **argv){
 
   // declare sets, pointers, datasets and global constants
 
-  op_decl_set(nnode,  nodes, "nodes");
-  op_decl_set(nedge,  edges, "edges");
-  op_decl_set(nbedge, bedges,"bedges");
-  op_decl_set(ncell,  cells, "cells");
+  op_set nodes  = op_decl_set(nnode,  "nodes");
+  op_set edges  = op_decl_set(nedge,  "edges");
+  op_set bedges = op_decl_set(nbedge, "bedges");
+  op_set cells  = op_decl_set(ncell,  "cells");
 
-  op_decl_map(edges, nodes,2,edge,  pedge,  "pedge");
-  op_decl_map(edges, cells,2,ecell, pecell, "pecell");
-  op_decl_map(bedges,nodes,2,bedge, pbedge, "pbedge");
-  op_decl_map(bedges,cells,1,becell,pbecell,"pbecell");
-  op_decl_map(cells, nodes,4,cell,  pcell,  "pcell");
+  op_map pedge   = op_decl_map(edges, nodes,2,edge,  "pedge");
+  op_map pecell  = op_decl_map(edges, cells,2,ecell, "pecell");
+  op_map pbedge  = op_decl_map(bedges,nodes,2,bedge, "pbedge");
+  op_map pbecell = op_decl_map(bedges,cells,1,becell,"pbecell");
+  op_map pcell   = op_decl_map(cells, nodes,4,cell,  "pcell");
 
-  op_decl_dat(bedges,1,"int"  ,bound,p_bound,"p_bound");
-  op_decl_dat(nodes ,2,"float",x    ,p_x    ,"p_x");
-  op_decl_dat(cells ,4,"float",q    ,p_q    ,"p_q");
-  op_decl_dat(cells ,4,"float",qold ,p_qold ,"p_qold");
-  op_decl_dat(cells ,1,"float",adt  ,p_adt  ,"p_adt");
-  op_decl_dat(cells ,4,"float",res  ,p_res  ,"p_res");
+  op_dat p_bound = op_decl_dat(bedges,1,"int"  ,bound,"p_bound");
+  op_dat p_x     = op_decl_dat(nodes ,2,"float",x    ,"p_x");
+  op_dat p_q     = op_decl_dat(cells ,4,"float",q    ,"p_q");
+  op_dat p_qold  = op_decl_dat(cells ,4,"float",qold ,"p_qold");
+  op_dat p_adt   = op_decl_dat(cells ,1,"float",adt  ,"p_adt");
+  op_dat p_res   = op_decl_dat(cells ,4,"float",res  ,"p_res");
 
   op_decl_const(1,"float",&gam  );
   op_decl_const(1,"float",&gm1  );

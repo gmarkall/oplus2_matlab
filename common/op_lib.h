@@ -67,11 +67,10 @@ inline int type_error(const bool   *,const char *type){return strcmp(type,"bool"
 #define ZERO_bool    0;
 
 
-// identity mapping
-#define OP_ID  (op_map) {{0,0,"null"},{0,0,"null"},0,-1,NULL,"id"}
+// identity mapping and global identifier
 
-// global identifier
-#define OP_GBL (op_map) {{0,0,"null"},{0,0,"null"},0,-2,NULL,"gbl"}
+#define OP_ID  (op_map) NULL
+#define OP_GBL (op_map) NULL
 
 //
 // external variables declared in op_lib_core.cpp
@@ -89,15 +88,13 @@ void op_init_core(int, char **, int);
 void op_init(int, char **, int);
 
 extern "C"
-void op_decl_set_core(int, op_set *, char const *);
-void op_decl_set(int, op_set &, char const *);
+op_set op_decl_set(int, char const *);
 
 extern "C"
-void op_decl_map_core(op_set, op_set, int, int *, op_map *, char const *);
-void op_decl_map(op_set, op_set, int, int *, op_map &, char const *);
+op_map op_decl_map(op_set, op_set, int, int *, char const *);
 
 extern "C"
-void op_decl_dat_char(op_set, int, char const *, int, char *, op_dat *, char const *);
+op_dat op_decl_dat_char(op_set, int, char const *, int, char *, char const *);
 
 void op_decl_const_char(int, char const *, int, char *, char const *);
 
@@ -111,7 +108,7 @@ void op_timing_output();
 
 extern "C"
 op_plan * plan(char const *, op_set, int, int, op_dat *, int *, op_map *, int *,
-               char const **, enum op_access *, int, int *);
+               char const **, op_access *, int, int *);
 
 extern "C"
 void op_timers(double *, double *);
@@ -128,12 +125,12 @@ void op_exit();
 //
 
 template < class T >
-void op_decl_dat(op_set set, int dim, char const *type, T *dat,
-                                 op_dat &data, char const *name){
+op_dat op_decl_dat(op_set set, int dim, char const *type,
+                                T *dat, char const *name){
   if (type_error(dat,type)) {
     printf("incorrect type specified for dataset \"%s\" \n",name); exit(1);
   }
-  op_decl_dat_char(set, dim, type, sizeof(T), (char *)dat, &data, name);
+  return op_decl_dat_char(set, dim, type, sizeof(T), (char *)dat, name);
 }
 
 template < class T >
