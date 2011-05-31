@@ -9,7 +9,7 @@ tar_file:	all_clean
 		    jac2/*.h jac2/*.cpp jac2/*.cu jac2/Makefile \
 		    airfoil/*.h airfoil/*.cpp airfoil/*.cu airfoil/Makefile \
 		    common/*.h common/*.cpp common/*.cu \
-		    common/*.c common/*.m \
+		    common/*.c common/*.m common/Makefile \
                     doc/*.tex doc/*.pdf \
                     README Makefile
 

@@ -93,7 +93,7 @@ void arg_set(int n,op_dat arg,int idx,op_map map,int dim,
   else                              // standard pointers                                 
     n2 = map->map[idx+n*map->dim];                                                       
                                                                                          
-  *p_arg = (T *)(arg->dat + n2*arg->size);                                               
+  *p_arg = (T *)((char *)arg->dat + n2*arg->size);                                               
 }                                                                                        
                                                                                          
                                                                                          

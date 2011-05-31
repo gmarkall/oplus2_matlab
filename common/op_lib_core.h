@@ -91,7 +91,7 @@ typedef struct {
   op_set      set;    // set on which data is defined
   int         dim,    // dimension of data
               size;   // size of each element in dataset
-  char       *dat,    // data on host
+  void       *dat,    // data on host
              *dat_d;  // data on device (GPU)
   char const *type,   // datatype
              *name;   // name of dataset

@@ -109,7 +109,7 @@ extern "C"
 op_map op_decl_map(op_set, op_set, int, int *, char const *);
 
 extern "C"
-op_dat op_decl_dat_char(op_set, int, char const *, int, char *, char const *);
+op_dat op_decl_dat_core(op_set, int, char const *, int, void *, char const *);
 
 void op_decl_const_char(int, char const *, int, char *, char const *);
 
@@ -145,7 +145,7 @@ op_dat op_decl_dat(op_set set, int dim, char const *type,
   if (type_error(dat,type)) {
     printf("incorrect type specified for dataset \"%s\" \n",name); exit(1);
   }
-  return op_decl_dat_char(set, dim, type, sizeof(T), (char *)dat, name);
+  return op_decl_dat_core(set, dim, type, sizeof(T), (void *)dat, name);
 }
 
 template < class T >

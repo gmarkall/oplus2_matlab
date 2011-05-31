@@ -166,8 +166,8 @@ op_map op_decl_map(op_set from, op_set to, int dim, int *imap,
   return map;
 }
 
-op_dat op_decl_dat_char(op_set set, int dim, char const *type,
-                       int size, char *cdat, char const *name){
+op_dat op_decl_dat_core(op_set set, int dim, char const *type,
+                       int size, void *data, char const *name){
 
   if (set==NULL) {
     printf("op_decl_dat error -- invalid set for data: %s\n",name);
@@ -192,7 +192,7 @@ op_dat op_decl_dat_char(op_set set, int dim, char const *type,
   op_dat dat = (op_dat) malloc(sizeof(op_dat_core));
   dat->set   = set;
   dat->dim   = dim;
-  dat->dat   = cdat;
+  dat->dat   = data;
   dat->dat_d = NULL;
   dat->name  = name;
   dat->type  = type;
