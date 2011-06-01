@@ -66,11 +66,14 @@ extern int OP_diags;
 
 typedef enum {OP_READ, OP_WRITE, OP_RW, OP_INC, OP_MIN, OP_MAX} op_access;
 
+typedef enum {OP_ARG_GBL, OP_ARG_DAT} op_arg_type;
+
 //
 // structures
 //
 
 typedef struct {
+  int         index;  // index
   int         size;   // number of elements in set
   char const *name;   // name of set
 } op_set_core;
@@ -78,6 +81,7 @@ typedef struct {
 typedef op_set_core * op_set;
 
 typedef struct {
+  int         index;  // index
   op_set      from,   // set pointed from
               to;     // set pointed to
   int         dim,    // dimension of pointer
@@ -88,11 +92,12 @@ typedef struct {
 typedef op_map_core * op_map;
 
 typedef struct {
+  int         index;  // index
   op_set      set;    // set on which data is defined
   int         dim,    // dimension of data
               size;   // size of each element in dataset
-  void       *dat,    // data on host
-             *dat_d;  // data on device (GPU)
+  char       *data,   // data on host
+             *data_d; // data on device (GPU)
   char const *type,   // datatype
              *name;   // name of dataset
 } op_dat_core;
@@ -100,13 +105,28 @@ typedef struct {
 typedef op_dat_core * op_dat;
 
 typedef struct {
+  int         index;  // index
+  op_dat      dat;    // dataset
+  op_map      map;    // indirect mapping
+  int         dim,    // dimension of data
+              idx,    //
+              size;   // size (for sequential execution)
+  char       *data,   // data on host
+             *data_d; // data on device (for CUDA execution)
+  char const *type;   // datatype
+  op_access   acc;
+  op_arg_type argtype;
+} op_arg;
+
+
+typedef struct {
   // input arguments
   char const  *name;
   op_set       set;
-  op_map      *map;
-  op_dat      *arg;
-  int          nargs, ninds, *idxs, *dims, part_size;
-  char const **typs;
+  int          nargs, ninds, part_size;
+  op_map      *maps;
+  op_dat      *dats;
+  int         *idxs;
   op_access   *accs;
 
   // execution plan
@@ -114,9 +134,11 @@ typedef struct {
   int        *thrcol;   // thread colors
   int        *offset;   // offset for primary set
   int       **ind_maps; // pointers for indirect datasets
-  int        *ind_offs; // offsets for indirect datasets
-  int        *ind_sizes;// sizes for indirect datasets
-  short     **maps;     // regular pointers, renumbered as needed
+  int        *ind_offs; // block offsets for indirect datasets
+  int        *ind_sizes;// block sizes for indirect datasets
+  int        *nindirect;// total sizes for indirect datasets
+  short     **loc_maps; // maps to local indices, renumbered as needed
+  int         nblocks;  // number of blocks
   int        *nelems;   // number of elements in each block
   int         ncolors;  // number of block colors
   int        *ncolblk;  // number of blocks for each color
@@ -124,6 +146,7 @@ typedef struct {
   int         nshared;  // bytes of shared memory required
   float       transfer; // bytes of data transfer per kernel call
   float       transfer2;// bytes of cache line per kernel call
+  int         count;    // number of times called
 } op_plan;
 
 typedef struct {

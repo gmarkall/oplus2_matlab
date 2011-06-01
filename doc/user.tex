@@ -5,7 +5,7 @@
 
  \topmargin 0.in  \headheight 0pt  \headsep 0pt  \raggedbottom
  \oddsidemargin 0.1in 
- \textheight 9.5in  \textwidth 6.00in 
+ \textheight 9.25in  \textwidth 6.00in 
  \parskip 5pt plus 1pt minus 1pt
  \def \baselinestretch {1.25}   % one-and-a-half spaced
  \setlength {\unitlength} {0.75in}
@@ -35,20 +35,20 @@
 \newpage
 \section{Introduction}
 
-OP2 is an API with associated libraries and preprocessors to 
-generate parallel executables for applications on unstructured grids.  
-The initial API is for C, but FORTRAN 77 will also be supported.
+OP2 is an API with associated libraries and preprocessors to generate 
+parallel executables for applications on unstructured grids.  The 
+initial API is for C++, but C99 and FORTRAN 90 will also be supported.
 
 The key concept behind OP2 is that unstructured grids can be described
 by a number of sets.  Depending on the application, these sets might
-be of nodes, edges, triangular faces, quadrilateral faces, cells of
-a variety of types, far-field boundary nodes, wall boundary faces, etc.
-Associated with these sets are both data (e.g.~coordinate data at 
-nodes) and mappings to other sets (e.g.~edge mapping to the two 
-nodes at each end of the edge).  All of the numerically-intensive
-operations can then be described as a loop over all members of a set, 
-carrying out some operations on data associated directly
-with the set or with another set through a mapping.   
+be of nodes, edges, faces, cells of a variety of types, far-field 
+boundary nodes, wall boundary faces, etc.
+Associated with these are data (e.g.~coordinate data at nodes) and 
+mappings to other sets (e.g.~edge mapping to the two nodes at each 
+end of the edge).  All of the numerically-intensive operations can 
+then be described as a loop over all members of a set, carrying out 
+some operations on data associated directly with the set or with 
+another set through a mapping.   
 
 OP2 makes the important restriction that the order in which the
 function is applied to the members of the set must not affect the
@@ -121,10 +121,11 @@ includes a separate file for each of the kernel functions.  These
 are then compiled and linked to the OP routines in {\tt op\_lib.cu} 
 using {\tt g++} and the NVIDIA CUDA compiler {\tt nvcc}, again 
 perhaps controlled by a Makefile.
-As well as the header file {\tt op\_seq.h} which is included by
-the user's main code {\tt jac.cpp}, there is a header file
-{\tt op\_datatypes.h} which is included by all of the files
-in the CUDA implementation, and by {\tt op\_seq.h}.
+
+%As well as the header file {\tt op\_seq.h} which is included by
+%the user's main code {\tt jac.cpp}, there is a header file
+%{\tt op\_datatypes.h} which is included by all of the files
+%in the CUDA implementation, and by {\tt op\_seq.h}.
 
 Figure \ref{fig:op} shows the OpenMP build process which is very 
 similar to the CUDA process except that it uses {\tt *.cpp} files
@@ -267,7 +268,7 @@ both in the single-threaded library and in the CUDA library.
 \newpage
 \section{Initialisation and termination routines}
 
-\begin{routine} {op\_init(int argc, char **argv, int diags\_level)}
+\begin{routine} {void op\_init(int argc, char **argv, int diags\_level)}
 {This routine must be called before all other OP routines.}
 \item[argc, argv]   the usual command line arguments
 \item[diags\_level] an integer which defines the level of debugging
@@ -281,37 +282,34 @@ both in the single-threaded library and in the CUDA library.
 \end{routine}
 
 
-\begin{routine} {op\_exit()}
+\begin{routine} {void op\_exit()}
 {This routine must be called last to cleanly terminate the OP computation.}
 \item \vspace{-0.3in}
 \end{routine}
 
-\begin{routine} {op\_decl\_set(int size, op\_set set, char *name)}
-{This routine declares information about a set.}
+\begin{routine} {op\_set op\_decl\_set(int size, char *name)}
+{This routine defines a set, and returns a set ID.}
 
 \item[size]          number of elements in the set
-\item[set]           output OP set ID
 \item[name]          a name used for output diagnostics
 \end{routine}
 
-\begin{routine} {op\_decl\_map(op\_set from, op\_set to, int dim, int *imap, op\_map map,\\
-\hspace*{1in} char *name)}
-{This routine declares information about a mapping from one set to another.}
+\begin{routine} {op\_map op\_decl\_map(op\_set from, op\_set to, int dim, int *imap, char *name)}
+{This routine defines a mapping from one set to another, and returns a map ID.}
 
 \item[from]          set pointed from
 \item[to]            set pointed to
 \item[dim]           number of mappings per element
 \item[imap]          input mapping table
-\item[map]           output OP mapping ID
 \item[name]          a name used for output diagnostics
 \end{routine}
 
 \newpage
 
-\begin{routine} {op\_decl\_const(int dim, char *type, T *dat, char *name)}
-{This routine declares constant data with global scope to be used in user's kernel functions.
-Note: in sequential version, it is the user's responsibility to define the appropriate global
-variable.}
+\begin{routine} {void op\_decl\_const(int dim, char *type, T *dat, char *name)}
+{This routine declares constant data with global scope to be used in user's kernel 
+functions. Note: in sequential version, it is the user's responsibility to define the 
+appropriate variable with global scope.}
 
 \item[dim]           dimension of data (i.e.~array size)
 
@@ -325,9 +323,8 @@ variable.}
                      a scalar variable if {\tt dim=1}, otherwise an array of size {\tt dim}
 \end{routine}
 
-\begin{routine} {op\_decl\_dat(op\_set set, int dim, char *type, T *idat, op\_dat dat,\\
-\hspace*{0.9in} char *name)}
-{This routine declares information about data associated with a set.}
+\begin{routine} {op\_dat op\_decl\_dat(op\_set set, int dim, char *type, T *data, char *name)}
+{This routine defines a dataset, and returns a dataset ID.}
 
 \item[set]           set
 \item[dim]           dimension of dataset (number of items per set element)
@@ -336,18 +333,17 @@ variable.}
                      this restriction will be removed in the future but a literal constant will
                      remain more efficient
 \item[type]          datatype, either intrinsic or user-defined
-\item[idat]          input data of type {\tt T}  (checked for consistency with {\tt type} at run-time)
-\item[dat]           output OP dataset ID
+\item[data]          input data of type {\tt T}  (checked for consistency with {\tt type} at run-time)
 \item[name]          a name used for output diagnostics
 \end{routine}
 
-\begin{routine} {op\_fetch\_data(op\_dat dat)}
+\begin{routine} {void op\_fetch\_data(op\_dat dat)}
 {This routine transfers data from the GPU back to the CPU.}
 \item[dat]           OP dataset ID -- data is put back into original input array 
 \end{routine}
 
 
-\begin{routine} {op\_diagnostic\_output()}
+\begin{routine} {void op\_diagnostic\_output()}
 {This routine prints out various useful bits of diagnostic info about sets, mappings and datasets}
 \item \vspace{-0.3in}
 \end{routine}
@@ -361,24 +357,49 @@ variable.}
 
 
 \newpage
-\section{Parallel execution routine}
+\section{Parallel loop syntax}
 
-As an example, the parallel loop syntax when the user's kernel function has 3 arguments,
-with the third being a local constant or global reduction array, is:
+A parallel loop with N arguments has the following syntax:
 
-\begin{routine} {op\_par\_loop\_3(void (*kernel)(T0 *, T1 *, T2 *), char *name, op\_set set,\\
-\hspace*{0.13in}    op\_dat arg0, int idx0, op\_map map0, int dim0, char *typ0, op\_access acc0,\\
-\hspace*{0.13in}    op\_dat arg1, int idx1, op\_map map1, int dim1, char *typ1, op\_access acc1,\\
-\hspace*{0.13in}    T2     *arg2, int idx2, op\_map map2, int dim2, char *typ2, op\_access acc2)}{}
+\begin{routine} {void op\_par\_loop(void (*kernel)(...), char *name, op\_set set,\\
+\hspace*{1.35in}    op\_arg arg1, op\_arg arg2, \ldots , op\_arg argN)}{}
 
-\item[kernel]     user's kernel function with 3 arguments of arbitrary type\\
+\item[kernel]     user's kernel function with N arguments\\
                   (this is only used for the single-threaded CPU build)
 \item[name]       name of kernel function, used for output diagnostics
-\item[set]        OP set ID, giving set over which the parallel computation is performed
-\item[arg]        OP dataset ID, or pointer to constant or global reduction array
+\item[set]        OP set ID
+\item[args]       arguments
+\end{routine}
+
+
+\vspace{0.4in}
+\noindent
+The {\bf op\_arg} arguments in {\bf op\_par\_loop} are provided by one of the 
+following routines, one for global constants and reductions, and the other 
+for OP2 datasets.  In the future there will be a third one for sparse matrices
+to support the needs of finite element calculations.
+
+\vspace{0.2in}
+
+
+\begin{routine} {op\_arg op\_arg\_gbl(T *data, int dim, char *typ, op\_access acc)}{}
+\item[data]       data array
+\item[dim]        array dimension
+\item[typ]        datatype (redundant info, checked at run-time for consistency)
+\item[acc]        access type:\\
+                  {\tt OP\_READ}: read-only\\ 
+                  {\tt OP\_INC}: global reduction to compute a sum\\ 
+                  {\tt OP\_MAX}: global reduction to compute a maximum \\ 
+                  {\tt OP\_MIN}: global reduction to compute a minimum
+\end{routine}
+
+\newpage
+
+\begin{routine} {op\_arg op\_arg\_dat(op\_dat dat, int idx, op\_map map,\\
+\hspace*{1.4in} int dim, char *typ, op\_access acc)}{}
+\item[dat]        OP dataset ID
 \item[idx]        index of mapping to be used (-1 $\equiv$ no mapping indirection)
-\item[map]        OP mapping ID ({\tt OP\_ID} for identity mapping, i.e.~no mapping indirection,
-                  {\tt OP\_GBL} for constant or global reduction array)
+\item[map]        OP mapping ID ({\tt OP\_ID} for identity mapping, i.e.~no mapping indirection)
 \item[dim]        dataset dimension (redundant info, checked at run-time for consistency)
 
                   at present this must be a literal constant (i.e. a number not a variable);
@@ -389,46 +410,25 @@ with the third being a local constant or global reduction array, is:
                   {\tt OP\_READ}: read-only\\ 
                   {\tt OP\_WRITE}: write-only, but without potential data conflict\\ 
                   {\tt OP\_RW}:  read and write, but without potential data conflict\\
-                  {\tt OP\_INC}: increment, or global reduction to compute a sum\\ 
-                  {\tt OP\_MAX}: global reduction to compute a maximum \\ 
-                  {\tt OP\_MIN}: global reduction to compute a minimum \\ 
-\end{routine}
-
-\noindent
-In this example, {\tt kernel} is a function with 3 arguments of arbitrary type which
-performs a calculation for a single set element.
-This will get converted by a preprocessor into a routine called by the CUDA kernel 
-function.  The preprocessor will also take the specification of the arguments and turn 
-this into the CUDA kernel function which loads in indirect data (i.e.~data addressed 
-indirectly through a mapping) from the device main memory into the shared storage, 
-then calls the converted {\tt kernel} function for each element for each line in 
-the above specification.  Indirect data is incremented in shared memory (with
-thread coloring to avoid possible data conflicts) before being updated at the end 
-of the CUDA kernel call.
+                  {\tt OP\_INC}: increment, or global reduction to compute a sum\\
 
 The restriction that {\tt OP\_WRITE} and {\tt OP\_RW} access must not have any 
 potential data conflict means that two different elements of the set cannot 
 through a mapping indirection reference the same elements of the dataset.  
-
-%(If they did, it would be undetermined which final value would be assigned to
-%the dataset element.  Users might argue that it would be OK if both assigned
-%the same value, but I don't want to handle that complication.)
 
 Furthermore, with {\tt OP\_WRITE} the user's kernel function must set the 
 value of all {\tt DIM} components of the dataset.  If the user's kernel function
 does not set all of them, the access should be specified to be {\tt OP\_RW}
 since the kernel function needs to read in the old values of the components
 which are not being modified. 
-
-Different numbers of arguments are handled similarly by routines with names
-of the form {\tt op\_par\_loop\_n} where {\tt n} is the number of arguments.
-Each argument can be either a dataset or a local constant or global reduction 
-array, following the syntax shown above.
+\end{routine}
 
 
+
+\newpage
 \section{User-defined datatypes}
 
-If the user defines a new datatype {\tt mytype} then this must be included in
+If the user defines a new datatype {\tt mytype} it must be included in
 a header file along with
 \begin{itemize}
 \item
@@ -465,7 +465,7 @@ environment variable {\tt OP\_USER\_DATATYPES}
 so that this header file is included into the OP2 header file {\tt op\_datatypes.h}.
 
 
-\newpage
+%\newpage
 
 
 \section{Preprocessor}
@@ -507,19 +507,19 @@ checks that a set has a strictly positive number of elements
 \item
 checks that a map has legitimate mapping indices, 
 i.e.~they map to elements within the range of the target set
-\item
-checks that all input sets, maps and datasets have been properly initialised
+%\item
+%checks that all input sets, maps and datasets have been properly initialised
 \item
 checks that variables have the correct declared type
 \end{itemize}
 
 
 
-It would be very helpful to get feedback from users on suggestions for 
+It would be great to get feedback from users on suggestions for 
 additional error-checking.
 
 
-\newpage
+%\newpage
 \section{32-bit and 64-bit CUDA}
 
 Section 3.1.6 of the CUDA 3.2 Programming Guide says:

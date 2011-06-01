@@ -58,12 +58,12 @@ the Users Manual.
 
 The OP2 design uses hierarchical parallelism with two principal levels.
 
-At the higher level, OP2 will be parallelized across distributed-memory
-clusters using MPI message-passing.  This will use essentially the same 
-implementation approach as the original OPlus.  The domain will be 
+At the higher level, OP2 is parallelized across distributed-memory
+clusters using MPI message-passing.  This uses essentially the same 
+implementation approach as the original OPlus.  The domain is
 partitioned among the compute nodes of the cluster, and import/export 
-halos will be constructed for message-passing.  Data conflicts when 
-incrementing indirectly referenced datasets will be avoided by using an
+halos are constructed for message-passing.  Data conflicts when 
+incrementing indirectly referenced datasets are avoided by using an
 ``owner-compute'' model, in which each process performs the computations
 which are required to update data owned by that partition.  This approach
 involves some amount of redundant computation; for example, if the 
@@ -77,11 +77,11 @@ of our key assumptions:
 {\bf Key assumption 1: each compute node will have GBs of memory}
 \vspace{0.1in}
 
-At the lower level, there will be different kinds of parallelism depending
+At the lower level, there are different kinds of parallelism depending
 on the target hardware:
 \begin{itemize}
 \item
-on NVIDIA GPUs, the lower level may be split into two, with multiple 
+on NVIDIA GPUs, the lower level is split into two, with multiple 
 thread blocks, and multiple threads within each block;
 \item
 on CPUs, the lower level may also be split in two, with shared-memory
@@ -241,11 +241,13 @@ synchronization in between colors.
 
 \section{Plan construction}
 
-This section deals with the algorithms in routine {\tt \bf plan} 
-within the file {\tt \bf op\_lib.cu}.  This is called whenever a
+This section deals with the algorithms in routine {\tt \bf op\_plan\_core} 
+within the file {\tt \bf op\_lib\_core.c}.  This is called whenever a
 parallel loop has at least one indirect dataset.
 
 \subsection{indirect datasets}
+
+\label{sec:indirect_datasets}
 
 ``Sets'' are things like nodes or edges, a collection of abstract 
 ``elements'' over which the parallel loops execute.
@@ -268,7 +270,7 @@ the number of arguments {\tt nargs}, the number of indirect datasets
 if it is equal to $-1$ then the argument does not reference an 
 indirect dataset.
 All of this information is supplied as input to the routine 
-{\tt \bf plan}.
+{\tt \bf op\_plan\_core}.
 
 \subsection{local renumbering}
 
@@ -321,7 +323,7 @@ Note also that for multi-dimensional mappings one has to use the
 appropriate mapping index as specified in the inputs, and the 
 re-numbered mappings which are stored are for that index alone.
 
-\newpage
+%\newpage
 
 \subsection{coloring}
 
@@ -377,38 +379,7 @@ that in the first and third steps the loop is over all indirect
 dataset elements referenced by all of the elements in the block, 
 not just by a single element.
 
-\newpage
-
-\subsection{block mapping}
-
-The final part of {\tt \bf plan} defines a block mapping.
-As illustrated in the bottom row of Fig.~\ref{fig:blkmap}, 
-{\tt \bf plan} constructs blocks and stores their data in 
-the order in which they are generated, so they are not 
-grouped by color.
-
-Rather than reordering the blocks to group them by color, 
-I instead construct the {\tt blkmap} mapping from a grouped 
-arrangement to the actual blocks.  This, together with the 
-number of blocks of each color, is all that is needed for 
-the later kernel execution.
-
-The algorithm to compute {\tt blkmap} is:
-\begin{itemize}
-\item
-compute the total number of blocks of each color
-\item
-do a cumulative summation to obtain the sum
-of all blocks of preceding colors
-\item
-processing each block in turn, add the number of preceding
-blocks of the same color to the cumulative sum of
-preceding colors, to obtain its position in the {\tt blkmap} 
-array
-\item
-finally, undo the cumulative summation operation to store 
-the number of blocks of each color
-\end{itemize}
+%\newpage
 
 \begin{figure}
 \begin{center}
@@ -460,16 +431,50 @@ the number of blocks of each color
 \label{fig:blkmap}
 \end{figure}
 
+\subsection{block mapping}
+
+\label{sec:block_mapping}
+
+The final part of {\tt \bf op\_plan\_core} defines a block mapping.
+As illustrated in the bottom row of Fig.~\ref{fig:blkmap}, 
+{\tt \bf op\_plan\_core} constructs blocks and stores their data in 
+the order in which they are generated, so they are not 
+grouped by color.
+
+Rather than reordering the blocks to group them by color, 
+I instead construct the {\tt blkmap} mapping from a grouped 
+arrangement to the actual blocks.  This, together with the 
+number of blocks of each color, is all that is needed for 
+the later kernel execution.
+
+The algorithm to compute {\tt blkmap} is:
+\begin{itemize}
+\item
+compute the total number of blocks of each color
+\item
+do a cumulative summation to obtain the sum
+of all blocks of preceding colors
+\item
+processing each block in turn, add the number of preceding
+blocks of the same color to the cumulative sum of
+preceding colors, to obtain its position in the {\tt blkmap} 
+array
+\item
+finally, undo the cumulative summation operation to store 
+the number of blocks of each color
+\end{itemize}
+
 
 \subsection{rest}
 
-The first part of {\tt \bf plan} checks whether there is an existing plan 
-to deal with this parallel loop, and if not it does some self-consistency 
-checking.
+The first part of {\tt \bf op\_plan\_core} checks whether there is an 
+existing plan to deal with this parallel loop, and if not it does some 
+self-consistency checking.
 
-The final part of {\tt \bf plan} computes the maximum amount of shared 
-memory required by any of the blocks, and copies the plan arrays over 
-onto the GPU, keeping the pointers in the {\tt plan} structure.
+The final part of {\tt \bf op\_plan\_core} computes the maximum amount 
+of shared memory required by any of the blocks, and copies the plan arrays 
+over onto the GPU, keeping the pointers in the {\tt op\_plan\_core} 
+structure.
 
 
 \subsection{op\_plan struct}
@@ -643,7 +648,7 @@ memory is instead reserved exclusively for register spills.
 Writing indirect datasets back to graphics memory is accomplished in a 
 similar manner.
 
-%\newpage
+\newpage
 
 \section{op2.m preprocessor}
 
@@ -652,8 +657,8 @@ In this section I describe the code transformation performed by
 
 \subsection{parsing the op\_par\_loop calls}
 
-As explained in Section 1.1, the pre-processor finds each 
-{\tt op\_par\_loop} call 
+As explained in Section \ref{sec:indirect_datasets}, the pre-processor 
+finds each {\tt op\_par\_loop} call 
 and parses the arguments to identify the number of indirect 
 datasets which are used, and to define the {\tt inds[]} mapping 
 from the arguments to the indirect datasets.  It also identifies 
@@ -664,27 +669,28 @@ which are generated are fairly simple.  The descriptions in the next
 two sections are for the more interesting case in which there is
 at least one indirect dataset.
 
-\subsection{the stub routine}
+\subsection{the CUDA stub routine}
 
 The stub routine is the host routine which is called by the user's 
 main code.  If there are any local constants or global reduction 
 operations it starts by transferring this data to the GPU.
 
-It then calls {\tt \bf plan} to generate the execution plan, 
-passing into it the information about indirect datasets which 
-has been determined by the parser.
+It then calls {\tt \bf op\_plan\_get} to get an existing plan or 
+generate a new one, passing into it the information about indirect 
+datasets which has been determined by the parser.
 
 It then calls the kernel function to execute the plan.  This is 
 done within a loop over the different blocks colors, with an
 implicit synchronization between each color to avoid any data 
-conflicts
+conflicts.
 
 One of the kernel parameters is the amount of dynamic shared 
 memory; this comes from the maximum requirement determined 
-by {\tt \bf plan}.
+by {\tt \bf op\_plan\_core}.
 
 Finally, for global reductions it fetches the output data back
-to the CPU.
+to the CPU and does the final processing, combining the partial
+results from each thread block.
 
 %\newpage
 
@@ -706,7 +712,8 @@ declare working variables, including local arrays which will probably
 be held in registers (or in L1 cache on Fermi)
 
 \item
-get block ID using {\tt blkmap} mapping discussed in Section 1.4
+get block ID using {\tt blkmap} mapping discussed in Section 
+\ref{sec:block_mapping}
 
 \item
 set the dynamic shared memory pointers for indirect datasets; see 
@@ -763,20 +770,7 @@ The generated code includes a number of pointers which are computed
 by thread 0 and held in shared memory.  This is because the same values 
 are needed for all threads, and this minimizes register usage.
 
-
-\subsection{the new source file}
-
-The new source file generated by {\bf op2.m} has only minor changes 
-from the original source file:
-\begin{itemize}
-\item
-new header file and declaration of function prototypes
-
-\item
-new names for each {\tt op\_par\_loop} call
-\end{itemize}
-
-\subsection{the master kernels file}
+\subsection{the CUDA master kernels file}
 
 The master kernels file is a single file which includes the kernel 
 files for each parallel loop along with some header files and the 
@@ -785,6 +779,40 @@ any {\tt op\_decl\_const} calls.
 
 It has to be done this way in the current version of CUDA for the 
 constants to have global scope over all kernel files.
+
+
+\subsection{the OpenMP files}
+
+The OpenMP files generated by {\bf op2.m} are very similar to the
+CUDA files.  Originally, this capability was introduced as a debugging 
+tool while developing the CUDA capability.  Hence, there are various
+places in which the code looks surprisingly similar to the CUDA code.
+
+In particular, the OpenMP ``kernel'' code copies indirect datasets
+from ``global memory'' into ``local shared memory''.  In practice,
+the array used as the local shared memory will almost certainly fit
+within the L2 cache on most CPUs, and so this implementation should
+results in good performance.  Nevertheless, it would be interesting
+in the future to try an implementation without this additional level
+of data copying.
+
+The other point worth discussing is the OpenMP implementation of
+global reductions.  This is handled in a similar way to the CUDA 
+implementation.  Each OpenMP thread does a partial reduction using
+thread-specific local vairables.  These are then combined in a final
+sequential step.
+
+\subsection{the new source file}
+
+The new source file generated by {\bf op2.m} for both CUDA and OpenMP
+execution has only minor changes from the original source file:
+\begin{itemize}
+\item
+new header file and declaration of function prototypes
+
+\item
+new names for each {\tt op\_par\_loop} call
+\end{itemize}
 
 \newpage
 
@@ -1047,6 +1075,16 @@ fetching of the permuted identity mapping
 \item
 Should use the {\tt restrict} qualifier where appropriate to enable 
 compiler optimization
+
+\item
+There is scope for relatively simple checkpointing. An {\bf op\_checkpoint} 
+instruction in the user code would trigger the saving of the state of all
+of the OP2 datasets.  In addition, all global reduction values generated by
+OP2 would be saved.  In the event of an application failure, the application 
+could be restarted and ``fast-forwarded'' to the last checkpoint at which
+point the state would be restored.  The global reduction data is all that is
+needed for the fast-forward to proceed correctly, as this is the only data 
+which is transferred from OP2 to the user's main application.
 
 \end{itemize}
 

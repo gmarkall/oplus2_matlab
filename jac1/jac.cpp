@@ -146,19 +146,19 @@ int main(int argc, char **argv){
 
   for (int iter=0; iter<NITER; iter++) {
     op_par_loop(res,"res", edges,
-                p_A,  -1,OP_ID,  1,"float",OP_READ,
-                p_u,   1,ppedge, 1,"float",OP_READ,
-                p_du,  0,ppedge, 1,"float",OP_INC,
-                &beta,-1,OP_GBL, 1,"float",OP_READ);
+                op_arg_dat(p_A, -1,OP_ID,  1,"float",OP_READ),
+                op_arg_dat(p_u,  1,ppedge, 1,"float",OP_READ),
+                op_arg_dat(p_du, 0,ppedge, 1,"float",OP_INC ),
+                op_arg_gbl(&beta,1,"float",OP_READ));
 
     u_sum = 0.0f;
     u_max = 0.0f;
     op_par_loop(update,"update", nodes,
-                p_r,   -1,OP_ID, 1,"float",OP_READ,
-                p_du,  -1,OP_ID, 1,"float",OP_RW,
-                p_u,   -1,OP_ID, 1,"float",OP_INC,
-                &u_sum,-1,OP_GBL,1,"float",OP_INC,
-                &u_max,-1,OP_GBL,1,"float",OP_MAX);
+                op_arg_dat(p_r,  -1,OP_ID, 1,"float",OP_READ),
+                op_arg_dat(p_du, -1,OP_ID, 1,"float",OP_RW  ),
+                op_arg_dat(p_u,  -1,OP_ID, 1,"float",OP_INC ),
+                op_arg_gbl(&u_sum,1,"float",OP_INC),
+                op_arg_gbl(&u_max,1,"float",OP_MAX));
     printf("\n u max/rms = %f %f \n\n",u_max, sqrt(u_sum/nnode));
   }
 

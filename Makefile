@@ -15,8 +15,10 @@ tar_file:	all_clean
 
 #		    airfoil/new_grid.dat \
 
-all_clean:	jac1_clean jac2_clean airfoil_clean
+all_clean:	common_clean jac1_clean jac2_clean airfoil_clean
 
+common_clean:
+		cd common; make clean;
 
 jac1_clean:	
 		cd jac1; make clean;

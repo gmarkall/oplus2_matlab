@@ -52,8 +52,6 @@ OP_ID  = 1;
 OP_GBL = 2;
 OP_MAP = 3;
 
-OP_maps_labels = { 'OP_ID' 'OP_GBL' 'OP_MAP' };
-
 OP_READ  = 1;
 OP_WRITE = 2;
 OP_RW    = 3;
@@ -98,49 +96,42 @@ for narg = 1: nargin
   disp(sprintf('\n processing file %d of %d (%s)',...
                narg,nargin,[filename '.cpp']));
 
-  new_file = fileread([filename '.cpp']);
-  src_file = regexprep(new_file,'\s','');
+  src_file = fileread([filename '.cpp']);
+
+  consts    = op_decl_const_parse(src_file);
+  n_consts  = length(consts);
+  loc_consts = [];
+  for n = 1:n_consts
+    loc_consts(n) = consts{n}.loc;
+  end
+
+  loop_args  = op_par_loop_parse(src_file);
+  n_loops    = length(loop_args);
+  loc_loops  = [];
+  for n = 1:n_loops
+    loc_loops(n) = loop_args{n}.loc;
+  end
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %
-%  parse file for next op_par_loop
+%  process op_par_loop calls
 %
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
-  while (~isempty(strfind(src_file,'op_par_loop(')))
-
-    loc  = min(strfind(src_file,'op_par_loop('));
-    src_file = src_file(loc+11:end);
-
-%    [num,  src_file] = strtok(src_file,'(');
-%    nargs = str2num(num);
-    [src_args, src_file] = strtok(src_file,')');
-    src_args = src_args(2:end);
-
-    loc = [0 strfind(src_args,',') length(src_args)+1];
-
-    na = length(loc)-1;
-
-    nargs = (na-3)/6;
-
-    if (mod(na,6) ~= 3)
-      error('wrong number of arguments');
-    end
-
-    for n = 1:na
-      C{n} = src_args(loc(n)+1:loc(n+1)-1);
-    end
-
+  for loop_index = 1:n_loops
     nkernels = nkernels + 1;
     nker     = nker + 1;
-    fn_name  = C{1};
+
+    fn_name = loop_args{loop_index}.name1;
+    nargs   = loop_args{loop_index}.nargs;
     disp(sprintf('\n  processing kernel %d (%s) with %d arguments',...
                  nkernels,fn_name,nargs));
 
 %
-% process parameters
+% process arguments
 %
 
+    vars = {};
     idxs = zeros(1,nargs);
     dim  = zeros(1,nargs);
     dims = {};
@@ -149,27 +140,46 @@ for narg = 1: nargin
     accs = zeros(1,nargs);
 
     for m = 1:nargs
-      idxs(m) = str2num(C{-1+6*m});
-      dims{m} = C{ 1+6*m};
+      type = loop_args{loop_index}.type{m};
+      args = args_parse(loop_args{loop_index}.args{m});
 
-      if(isempty(strmatch(C{6*m},OP_maps_labels)))
-        maps(m) = OP_MAP;
-        if(idxs(m)<0)
-          error(sprintf('invalid index for argument %d',m));
+      if (strcmp(type,'op_arg_dat'))
+        vars{m} = args{1};
+        idxs(m) = str2num(args{2});
+
+	if (strcmp(args{3},'OP_ID'))
+          maps(m) = OP_ID;
+          if(idxs(m)~=-1)
+            error(sprintf('invalid index for argument %d',m));
+          end
+        else
+          maps(m) = OP_MAP;
+          if(idxs(m)<0)
+            error(sprintf('invalid index for argument %d',m));
+          end
         end
-      else
-        maps(m) = strmatch(C{6*m},OP_maps_labels);
-        if(idxs(m)~=-1)
-          error(sprintf('invalid index for argument %d',m));
+
+        dims{m} = args{4};
+        typs{m} = args{5}(2:end-1);
+
+        if(isempty(strmatch(args{6},OP_accs_labels)))
+          error(sprintf('unknown access type for argument %d',m));
+        else
+          accs(m) = strmatch(args{6},OP_accs_labels);
         end
       end
 
-      typs{m} = C{2+6*m}(2:end-1);
+      if (strcmp(type,'op_arg_gbl'))
+        maps(m) = OP_GBL;
+        vars{m} = args{1};
+        dims{m} = args{2};
+        typs{m} = args{3}(2:end-1);
 
-      if(isempty(strmatch(C{3+6*m},OP_accs_labels)))
-        error(sprintf('unknown access type for argument %d',m));
-      else
-        accs(m) = strmatch(C{3+6*m},OP_accs_labels);
+        if(isempty(strmatch(args{4},OP_accs_labels)))
+          error(sprintf('unknown access type for argument %d',m));
+        else
+          accs(m) = strmatch(args{4},OP_accs_labels);
+        end
       end
 
       if(maps(m)==OP_GBL & (accs(m)==OP_WRITE | accs(m)==OP_RW))
@@ -186,10 +196,8 @@ for narg = 1: nargin
 % set two logicals 
 %
 
-%    ind_inc = length(find(idxs>=0 & accs==OP_INC)) > 0;
-
-   ind_inc = max(maps==OP_MAP & accs==OP_INC)  > 0;
-   reduct  = max(maps==OP_GBL & accs~=OP_READ) > 0;
+    ind_inc = max(maps==OP_MAP & accs==OP_INC)  > 0;
+    reduct  = max(maps==OP_GBL & accs~=OP_READ) > 0;
 
 %
 %  identify indirect datasets
@@ -202,13 +210,12 @@ for narg = 1: nargin
     inddims   = cell(1,nargs);
     indaccs   = zeros(1,nargs);
 
-%    j = find(idxs>=0);                % find all indirect arguments
     j = find(maps==OP_MAP);                % find all indirect arguments
 
     while (~isempty(j))
-      match = strcmp(C(-2+6*j(1)), C(-2+6*j)) ...  % same variable name
-              & strcmp(typs(j(1)),   typs(j)) ...  % same type  
-              &       (accs(j(1)) == accs(j));     % same access
+      match = strcmp(vars(j(1)),   vars(j)) ...  % same variable name
+            & strcmp(typs(j(1)),   typs(j)) ...  % same type  
+            &       (accs(j(1)) == accs(j));     % same access
       ninds = ninds + 1;
       indtyps{ninds} = typs{j(1)};
       inddims{ninds} = dims{j(1)};
@@ -668,12 +675,14 @@ for narg = 1: nargin
       file = strvcat(file,' ','  // global reductions',' ');
       for m = 1:nargs
         if (maps(m)==OP_GBL & accs(m)~=OP_READ)
+          line = '  for(int d=0; d<DIM; d++)';
+          file = strvcat(file,rep(line,m));
           if(accs(m)==OP_INC)
-            line = '  for(int d=0; d<DIM; d++) op_reduction<OP_INC>(&ARG[d+blockIdx.x*DIM],ARG_l[d]);';
+            line = '    op_reduction<OP_INC>(&ARG[d+blockIdx.x*DIM],ARG_l[d]);';
           elseif (accs(m)==OP_MIN)
-            line = '  for(int d=0; d<DIM; d++) op_reduction<OP_MIN>(&ARG[d+blockIdx.x*DIM],ARG_l[d]);';
+            line = '    op_reduction<OP_MIN>(&ARG[d+blockIdx.x*DIM],ARG_l[d]);';
           elseif (accs(m)==OP_MAX)
-            line = '  for(int d=0; d<DIM; d++) op_reduction<OP_MAX>(&ARG[d+blockIdx.x*DIM],ARG_l[d]);';
+            line = '    op_reduction<OP_MAX>(&ARG[d+blockIdx.x*DIM],ARG_l[d]);';
           else
             error('internal error: invalid reduction option')
           end
@@ -695,27 +704,18 @@ for narg = 1: nargin
           ['void op_par_loop_' fn_name '(char const *name, op_set set,']);
 
     for m = 1:nargs
-      if(maps(m)==OP_GBL)
-        line = ['  TYP *arg%dh,int idx%d, op_map map%d, int dim%d,' ...
-                ' char const *typ%d, op_access acc%d'];
-      else
-        line = ['  op_dat arg%d, int idx%d, op_map map%d, int dim%d,' ...
-                ' char const *typ%d, op_access acc%d'];
-      end
-      line = rep(sprintf(line, m-1,m-1,m-1,m-1,m-1,m-1),m);
+      line = rep('  op_arg ARG', m);
 
       if (m<nargs)
         file = strvcat(file,[line ',']);
       else
-        file = strvcat(file,[line '){'],' ');
+        file = strvcat(file,[line ' ){'],' ');
       end
     end
 
     for m = 1:nargs
       if (maps(m)==OP_GBL)
-        line = '  op_dat_core ARG_dat = {NULL,0,0,(char *)ARGh,NULL,"TYP","gbl"};';
-        file = strvcat(file,rep(line,m));
-        line = '  op_dat      ARG     = &ARG_dat;';
+        line = '  TYP *ARGh = (TYP *)ARG.data;';
         file = strvcat(file,rep(line,m));
       end
     end
@@ -724,49 +724,21 @@ for narg = 1: nargin
 %   indirect bits
 %
     if (ninds>0)
-      file = strvcat(file,' ',...
-         sprintf('  int         nargs = %d, ninds = %d;',nargs,ninds),' ');
+      file = strvcat(file,' ',['  int    nargs   = ' num2str(nargs) ';']);
 
-      for l=1:6
-        if (l==1)
-          word = 'arg';
-          line = sprintf('  op_dat      args[%d] = {',nargs);
-        elseif (l==2)
-          word = 'idx';
-          line = sprintf('  int         idxs[%d] = {',nargs);
-        elseif (l==3)
-          word = 'map';
-          line = sprintf('  op_map      maps[%d] = {',nargs);
-        elseif (l==4)
-          word = 'dim';
-          line = sprintf('  int         dims[%d] = {',nargs);
-        elseif (l==5)
-          word = 'typ';
-          line = sprintf('  char const *typs[%d] = {',nargs);
-        elseif (l==6)
-          word = 'acc';
-          line = sprintf('  op_access   accs[%d] = {',nargs);
-        end
-
-        for m = 1:nargs
-          if (m<nargs)
-            line = strcat(line,word,num2str(m-1),', ');
-          else
-            line = strcat(line,word,num2str(m-1),'};');
-          end
-        end
-        file = strvcat(file,line);
-      end
-
-      line = sprintf('  int         inds[%d] = {',nargs);
+      line = sprintf('  op_arg args[%d] = {',nargs);
       for m = 1:nargs
-        if (m<nargs)
-          line = strcat(line,num2str(inds(m)-1),', ');
-        else
-          line = strcat(line,num2str(inds(m)-1),'};');
-        end
+        line = [line 'arg' num2str(m-1) ','];
       end
-      file = strvcat(file,line);
+      file = strvcat(file,[line(1:end-1) '};']);
+
+      file = strvcat(file,' ',['  int    ninds   = ' num2str(ninds) ';']);
+
+      line = sprintf('  int    inds[%d] = {',nargs);
+      for m = 1:nargs
+        line = strcat(line,num2str(inds(m)-1),',');
+      end
+      file = strvcat(file,[line(1:end-1) '};']);
 
       file = strvcat(file,' ',...
       '  if (OP_diags>2) {              ',...
@@ -778,8 +750,7 @@ for narg = 1: nargin
       '  #else                          ',...
       '    int part_size = OP_part_size;',...
       '  #endif                         ',' ',...
-      '  op_plan *Plan = plan(name,set,part_size,nargs,args,idxs,',...
-      '                       maps,dims,typs,accs,ninds,inds);');
+      '  op_plan *Plan = op_plan_get(name,set,part_size,nargs,args,ninds,inds);');
 
 %
 % direct bit
@@ -849,12 +820,12 @@ for narg = 1: nargin
 
       for m=1:nargs
         if(maps(m)==OP_GBL & accs(m)==OP_READ);
-          line = '  ARG->dat   = OP_consts_h + consts_bytes;';
+          line = '  ARG.data   = OP_consts_h + consts_bytes;';
           file = strvcat(file,rep(line,m));
-          line = '  ARG->dat_d = OP_consts_d + consts_bytes;';
+          line = '  ARG.data_d = OP_consts_d + consts_bytes;';
           file = strvcat(file,rep(line,m));
           line = ...
-   '  for (int d=0; d<DIM; d++) ((TYP *)ARG->dat)[d] = ((TYP *)ARGh)[d];';
+   '  for (int d=0; d<DIM; d++) ((TYP *)ARG.data)[d] = ARGh[d];';
           file = strvcat(file,rep(line,m));
           line = '  consts_bytes += ROUND_UP(DIM*sizeof(TYP));';
           file = strvcat(file,rep(line,m));
@@ -914,17 +885,17 @@ for narg = 1: nargin
 
       for m=1:nargs
         if(maps(m)==OP_GBL & accs(m)~=OP_READ);
-          line = '  ARG->dat   = OP_reduct_h + reduct_bytes;';
+          line = '  ARG.data   = OP_reduct_h + reduct_bytes;';
           file = strvcat(file,rep(line,m));
-          line = '  ARG->dat_d = OP_reduct_d + reduct_bytes;';
+          line = '  ARG.data_d = OP_reduct_d + reduct_bytes;';
           file = strvcat(file,rep(line,m));
           file = strvcat(file,'  for (int b=0; b<maxblocks; b++)');
           line = '    for (int d=0; d<DIM; d++)';
           file = strvcat(file,rep(line,m));
           if (accs(m)==OP_INC)
-            line = '      ((TYP *)ARG->dat)[d+b*DIM] = ZERO_TYP;';
+            line = '      ((TYP *)ARG.data)[d+b*DIM] = ZERO_TYP;';
           else
-            line = '      ((TYP *)ARG->dat)[d+b*DIM] = ARGh[d];';
+            line = '      ((TYP *)ARG.data)[d+b*DIM] = ARGh[d];';
           end
           file = strvcat(file,rep(line,m));
           line = '  reduct_bytes += ROUND_UP(maxblocks*DIM*sizeof(TYP));';
@@ -965,15 +936,15 @@ for narg = 1: nargin
        ['    op_cuda_' fn_name '<<<nblocks,nthread,nshared>>>(']);
 
        for m = 1:ninds
-        line = sprintf('       (TYP *)ARG->dat_d, Plan->ind_maps[%d],',m-1);
+        line = sprintf('       (TYP *)ARG.data_d, Plan->ind_maps[%d],',m-1);
         file = strvcat(file,rep(line,invinds(m)));
        end
 
        for m = 1:nargs
          if (inds(m)==0)
-           line = '       (TYP *)ARG->dat_d,';
+           line = '       (TYP *)ARG.data_d,';
          else
-           line = sprintf('       Plan->maps[%d],',m-1);
+           line = sprintf('       Plan->loc_maps[%d],',m-1);
          end
          file = strvcat(file,rep(line,m));
        end
@@ -1004,15 +975,15 @@ for narg = 1: nargin
        file = strvcat(file,['     op_x86_' fn_name '( blockIdx,']);
 
        for m = 1:ninds
-        line = sprintf('       (TYP *)ARG->dat, Plan->ind_maps[%d],',m-1);
+        line = sprintf('       (TYP *)ARG.data, Plan->ind_maps[%d],',m-1);
         file = strvcat(file,rep(line,invinds(m)));
        end
 
        for m = 1:nargs
          if (inds(m)==0)
-           line = '       (TYP *)ARG->dat,';
+           line = '       (TYP *)ARG.data,';
          else
-           line = sprintf('       Plan->maps[%d],',m-1);
+           line = sprintf('       Plan->loc_maps[%d],',m-1);
          end
          file = strvcat(file,rep(line,m));
        end
@@ -1058,7 +1029,7 @@ for narg = 1: nargin
         line = ['  op_cuda_' fn_name '<<<nblocks,nthread,nshared>>>( '];
 
         for m = 1:nargs
-          file = strvcat(file,rep([line '(TYP *) ARG->dat_d,'],m));
+          file = strvcat(file,rep([line '(TYP *) ARG.data_d,'],m));
           line = blanks(length(line));
         end
 
@@ -1080,7 +1051,7 @@ for narg = 1: nargin
           if(maps(m)==OP_GBL & accs(m)~=OP_READ);
             file = strvcat(file,rep([line 'ARG_l + thr*64,'],m));
           else
-            file = strvcat(file,rep([line '(TYP *) ARG->dat,'],m));
+            file = strvcat(file,rep([line '(TYP *) ARG.data,'],m));
           end
           line = blanks(length(line));
         end
@@ -1102,11 +1073,11 @@ for narg = 1: nargin
          line = '    for (int d=0; d<DIM; d++)';
          file = strvcat(file,rep(line,m));
          if (accs(m)==OP_INC)
-          line = '      ARGh[d] = ARGh[d] + ((TYP *)ARG->dat)[d+b*DIM];';
+          line = '      ARGh[d] = ARGh[d] + ((TYP *)ARG.data)[d+b*DIM];';
          elseif (accs(m)==OP_MIN)
-          line = '      ARGh[d] = MIN(ARGh[d],((TYP *)ARG->dat)[d+b*DIM]);';
+          line = '      ARGh[d] = MIN(ARGh[d],((TYP *)ARG.data)[d+b*DIM]);';
          elseif (accs(m)==OP_MAX)
-          line = '      ARGh[d] = MAX(ARGh[d],((TYP *)ARG->dat)[d+b*DIM]);';
+          line = '      ARGh[d] = MAX(ARGh[d],((TYP *)ARG.data)[d+b*DIM]);';
          end
          file = strvcat(file,rep(line,m));
         end
@@ -1159,9 +1130,9 @@ for narg = 1: nargin
    for m = 1:nargs
      if(maps(m)~=OP_GBL)
        if (accs(m)==OP_READ || accs(m)==OP_WRITE)
-         file = strvcat(file,rep([line ' ARG->size;'],m));
+         file = strvcat(file,rep([line ' ARG.size;'],m));
        else
-         file = strvcat(file,rep([line ' ARG->size * 2.0f;'],m));
+         file = strvcat(file,rep([line ' ARG.size * 2.0f;'],m));
        end
      end
    end
@@ -1194,35 +1165,9 @@ for narg = 1: nargin
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %
-%  append kernel bits for new source file and master kernel file
+%  append kernel bits for master kernel file
 %
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-
-%    old = [ 'op_par_loop_' num2str(nargs) '(' fn_name ','];
-    old = [ 'op_par_loop(' fn_name ','];
-    new = [ 'op_par_loop_' fn_name '('];
-    new_file = regexprep(new_file,old,new);
-
-    if (nkernels==1)
-      new_file2 = ' ';
-    end
-
-    new_file2 = strvcat(new_file2,...
-    ['void op_par_loop_' fn_name '(char const *, op_set,   ']);
-
-    for n = 1:nargs
-      if (maps(n)==OP_GBL)
-        line = [ '  ' typs{n} ...
-                 '*, int, op_map, int, char const *, op_access' ];
-      else
-        line = '  op_dat, int, op_map, int, char const *, op_access';
-      end
-      if (n==nargs)
-        new_file2 = strvcat(new_file2,[line ');'],' ');
-      else
-        new_file2 = strvcat(new_file2,[line ',']);
-      end
-    end
 
     if (nkernels==1 & narg==1)
       ker_file3 = ' ';
@@ -1233,7 +1178,8 @@ for narg = 1: nargin
     elseif (target==OP_x86)
      ker_file3 = strvcat(ker_file3,['#include "' fn_name '_kernel.cpp"']);
     end
-  end
+
+  end  % end of main kernel call loop
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %
@@ -1246,38 +1192,19 @@ for narg = 1: nargin
     ker_file2 = '';
   end
 
-  src_file = fileread([filename '.cpp']);
-  src_file = regexprep(src_file,'\s','');
-
-  while (~isempty(strfind(src_file,'op_decl_const(')))
-    loc  = min(strfind(src_file,'op_decl_const('));
-    src_file = src_file(loc+14:end);
-    [src_args, src_file] = strtok(src_file,')');
-
-    loc = [0 strfind(src_args,',') length(src_args)+1];
-    na  = length(loc)-1;
-
-    for n = 1:na
-      C{n} = src_args(loc(n)+1:loc(n+1)-1);
-    end
-
-    if (na ~= 3)
-      error(sprintf('wrong number of arguments in op_decl_const'));
-    end
-
-    name = C{3};
+  for const_index = 1:n_consts
+    name = consts{const_index}.name;
     if (name(1)=='&')
       name = name(2:end);
+      consts{const_index}.name = name;
     end
-    type = C{2}(2:end-1);
-    [dim,ok] = str2num(C{1});
+
+    type = consts{const_index}.type(2:end-1);
+
+    [dim,ok] = str2num(consts{const_index}.dim);
     if (ok==0)
       dim = -999;
     end
-
-    old =   'op_decl_const(';
-    new = [ 'op_decl_const2("' name '",'];
-    new_file = regexprep(new_file,old,new,'once');
 
     repeat = 0;
     for c = 1:nconsts
@@ -1308,7 +1235,7 @@ for narg = 1: nargin
          [ '__constant__ ' type ' ' name ';' ]);
       elseif (ok)
        ker_file1 = strvcat(ker_file1, ...
-         [ '__constant__ ' type ' ' name '[' C{1} '];' ]);
+     [ '__constant__ ' type ' ' name '[' num2str(dim) '];' ]);
       else
        ker_file1 = strvcat(ker_file1, ...
          [ '__constant__ ' type ' ' name '[MAX_CONST_SIZE];' ]);
@@ -1316,10 +1243,6 @@ for narg = 1: nargin
      ['  if(~strcmp(name,"' name '") && size>MAX_CONST_SIZE) {'],...
      ['    printf("error: MAX_CONST_SIZE not big enough\n"); exit(1);'],...
       '  }');
-
-% ker_file1 = strvcat(ker_file1,['__device__ ' type ' *' name ';']);
-% ker_file2 = strvcat(ker_file2,['  if(~strcmp(name,"' name '")) {'],...
-%   ['    cutilSafeCall(cudaMalloc((void **)&' name ', dim*size));'],'}');
 
       end
 
@@ -1329,11 +1252,12 @@ for narg = 1: nargin
          [ 'extern ' type ' ' name ';' ]);
       else
        ker_file1 = strvcat(ker_file1, ...
-         [ 'extern ' type ' ' name '[' C{1} '];' ]);
+         [ 'extern ' type ' ' name '[' num2str(dim) '];' ]);
       end
      end
 
-     disp(sprintf('\n  global constant (%s) of size %s',name,C{1}));
+     disp(sprintf('\n  global constant (%s) of size %s',...
+                  name,consts{const_index}.dim));
     end
   end
 
@@ -1344,29 +1268,63 @@ for narg = 1: nargin
 %
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
-  new_file2 = strvcat('#include "op_lib.h"',' ',...
-                      '//',... 
-                      '// op_par_loop declarations',... 
-                      '//',... 
-                      new_file2);
-
-  loc = strfind(new_file,'#include "op_seq.h"');
-
   if (target==1)
     fid = fopen(strcat(filename,'_op.cpp'),'wt');
     fprintf(fid,'// \n// auto-generated by op2.m on %s \n//\n\n',date);
-    fprintf(fid,'%s',new_file(1:loc-1));
 
-    for n=1:size(new_file2,1)
-      fprintf(fid,'%s\n',new_file2(n,:));
+    loc_old = 1;
+
+    loc_header = strfind(src_file,'"op_seq.h"');
+
+    locs = sort([ loc_header loc_loops loc_consts]);
+
+    for loc = locs
+      fprintf(fid,'%s',src_file(loc_old:loc-1));
+      loc_old = loc-1;
+
+      if (~isempty(find(loc==loc_header)))
+        fprintf(fid,'"op_lib.h"\n\n');
+        fprintf(fid,'//\n// op_par_loop declarations\n//\n');
+
+        for k=1:nkernels
+	  fprintf(fid,'\nvoid op_par_loop_%s(char const *, op_set,\n',...
+                  loop_args{k}.name1);
+          for n = 1:loop_args{k}.nargs-1
+            fprintf(fid,'  op_arg,\n');
+          end
+          fprintf(fid,'  op_arg );\n');
+        end
+
+        loc_old = loc+14;
+      end
+
+      if (~isempty(find(loc==loc_loops)))
+        name = loop_args{find(loc==loc_loops)}.name1;
+        while (src_file(loc)~=',' || ~active(src_file(loc_old:loc)))
+          loc = loc+1;
+        end
+        fprintf(fid,'_%s(',name);
+        loc_old = loc+1;
+      end
+
+      if (~isempty(find(loc==loc_consts)))
+        name = consts{find(loc==loc_consts)}.name;
+        while (src_file(loc)~='(' || ~active(src_file(loc_old:loc)))
+          loc = loc+1;
+        end
+        fprintf(fid,'2("%s",',name);
+        loc_old = loc+1;
+      end
+
     end
 
-    fprintf(fid,'%s',new_file(loc+20:end));
+    fprintf(fid,'%s',src_file(loc_old:end));
 
     fclose(fid);
   end
 
 end
+
 
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
@@ -1385,8 +1343,8 @@ if (target==OP_CUDA)
     '#endif                    ',' ',...
     ker_file1,...
     ' ',...
-   ['void op_decl_const_char(int dim, char const *type,' ...
-    ' int size, char *dat, char const *name){'],...
+    'void op_decl_const_char(int dim, char const *type,',...
+    '            int size, char *dat, char const *name){',...
     ker_file2,...
     '  cutilSafeCall(cudaMemcpyToSymbol(name, dat, dim*size));',....
     '} ',' ',...
@@ -1397,13 +1355,13 @@ if (target==OP_CUDA)
 
 elseif (target==OP_x86) 
   file = strvcat(...
-  '// header                 ',' ',...
-  '#include "op_lib.h"       ',' ',...
-  'void __syncthreads(){}    ',' ',...
-  '// global constants       ',' ',...
-  ker_file1,' ',...
-  '// user kernel files',...
-  ker_file3);
+    '// header                 ',' ',...
+    '#include "op_lib.h"       ',' ',...
+    'void __syncthreads(){}    ',' ',...
+    '// global constants       ',' ',...
+    ker_file1,' ',...
+    '// user kernel files',...
+    ker_file3);
 
   fid = fopen([ varargin{1} '_kernels.cpp'],'wt');
 end
@@ -1437,3 +1395,188 @@ line = regexprep(line,'DIM',dims(m));
 line = regexprep(line,'ARG',sprintf('arg%d',m-1));
 line = regexprep(line,'TYP',typs(m));
 line = regexprep(line,'IDX',num2str(idxs(m)));
+
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%
+% parsing for op_decl_const calls
+%
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+function consts = op_decl_const_parse(file)
+
+consts = [];
+
+locs = strfind(file,'op_decl_const');
+
+for n = 1:length(locs)
+  loc = locs(n);
+  if active(file(1:loc))
+    loc = loc + length('op_decl_const');
+    args_str = active_compress(file(loc:end));
+
+    try
+      args = args_parse(args_str);
+      consts{n}.loc  = loc;
+      consts{n}.dim  = args{1};
+      consts{n}.type = args{2};
+      consts{n}.name = args{3};
+    catch
+      error(sprintf('error parsing op_decl_const'));
+    end
+  end
+end
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%
+% parsing for op_par_loop calls
+%
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+function loop_args = op_par_loop_parse(file)
+
+locs = strfind(file,'op_par_loop');
+
+for n = 1:length(locs)
+  loc = locs(n);
+  if active(file(1:loc))
+    loc = loc + length('op_par_loop');
+    args_str = active_compress(file(loc:end));
+
+    try
+      args = args_parse(args_str);
+      loop_args{n}.loc   = loc;
+      loop_args{n}.name1 = args{1};
+      loop_args{n}.name2 = args{2};
+      loop_args{n}.set   = args{3};
+      loop_args{n}.nargs = length(args)-3;
+      for m = 1:length(args)-3
+        if     strcmp(args{m+3}(1:10),'op_arg_dat')
+          loop_args{n}.type{m} = 'op_arg_dat';
+        elseif strcmp(args{m+3}(1:10),'op_arg_gbl')
+          loop_args{n}.type{m} = 'op_arg_gbl';
+        end
+        loop_args{n}.args{m} = args{m+3}(11:end);
+      end
+    catch
+      error(sprintf('error parsing op_par_loop'));
+    end
+  end
+end
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%
+% parse a single set of arguments
+%
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+function args = args_parse(string)
+
+if ~strcmp(string(1),'(')
+  error
+end
+
+loc1 = 2;
+loc2 = 1;
+depth = 0;
+nargs = 0;
+
+while 1
+  switch string(loc2)
+    case '('
+      depth = depth + 1;
+    case ')'
+      depth = depth - 1;
+      if (depth==0)
+        nargs = nargs + 1;
+        args{nargs} = string(loc1:loc2-1);
+        return
+      end
+    case ','
+      if (depth==1)
+        nargs = nargs + 1;
+        args{nargs} = string(loc1:loc2-1);
+        loc1 = loc2 + 1;
+      end
+  end
+  loc2 = loc2+1;
+end
+
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%
+% check if the last character in a C++/C99 file is active,
+% i.e. not commented out
+%
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+function ans = active(file)
+
+active_list = active_find(file);
+ans = (active_list(end) == length(file));
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%
+% compress a C++/C99 file, removing the comments
+%
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+function ans = active_compress(file)
+
+active_list = active_find(file);
+ans = [];
+for m = 1:size(active_list,2)
+  ans = [ ans file(active_list(1,m):active_list(2,m)) ];
+end
+
+ans = regexprep(ans,'\s','');
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%
+% routine to determine the active parts of a C++/C99 file,
+% i.e. the parts which are not commented out
+%
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+function active_list = active_find(file)
+
+len = length(file);
+
+loc1 = [ strfind(file,'/*') len+1 ];
+loc2 = [ strfind(file,'//') len+1 ];
+loc3 = [ strfind(file,'*/') len+1 ];
+loc4 = [ strfind(file,sprintf('\n')) len+1 ];
+
+start = 1;
+
+active_list = [];
+
+while (start<=len)
+  next = min(loc1(1),loc2(1));
+
+% ignore cases embedded within a text string
+  if (next<=len)
+    while (mod( length(strfind(file(start:next),'"')), 2)==1)
+      loc1 = loc1(find(loc1>next));
+      loc2 = loc2(find(loc2>next));
+      next = min(loc1(1),loc2(1));
+    end
+  end
+
+  if (next>start)
+    active_list = [ active_list [start; next-1] ];
+  end
+
+  if (next==loc1(1))
+    %  /* terminated by */
+    start = loc3(min(find(loc3>next))) + 2;
+  else
+    %  // terminated by newline
+    start = loc4(min(find(loc4>next))) + 1;
+  end
+
+  loc1 = loc1(find(loc1>=start));
+  loc2 = loc2(find(loc2>=start));
+end
+
+

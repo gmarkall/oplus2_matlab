@@ -109,9 +109,19 @@ extern "C"
 op_map op_decl_map(op_set, op_set, int, int *, char const *);
 
 extern "C"
-op_dat op_decl_dat_core(op_set, int, char const *, int, void *, char const *);
+op_dat op_decl_dat_core(op_set, int, char const *, int, char *, char const *);
+op_dat op_decl_dat_char(op_set, int, char const *, int, char *, char const *);
 
 void op_decl_const_char(int, char const *, int, char *, char const *);
+
+extern "C"
+void op_arg_check(op_set, int, op_arg, int *, char const *);
+
+extern "C"
+op_arg op_arg_dat(op_dat, int, op_map, int, char const *, op_access);
+
+extern "C"
+op_arg op_arg_gbl_core(char *, int, char const *, op_access);
 
 void op_fetch_data(op_dat);
 
@@ -122,8 +132,16 @@ extern "C"
 void op_timing_output();
 
 extern "C"
-op_plan * plan(char const *, op_set, int, int, op_dat *, int *, op_map *, int *,
-               char const **, op_access *, int, int *);
+op_plan * op_plan_old_core(char const *, op_set, int, int, op_dat *,
+    int *, op_map *, int *, char const **, op_access *, int, int *);
+
+op_plan * plan(char const *, op_set, int, int, op_dat *,
+    int *, op_map *, int *, char const **, op_access *, int, int *);
+
+extern "C"
+op_plan * op_plan_core(char const *, op_set, int, int, op_arg *, int, int *);
+
+op_plan * op_plan_get(char const *, op_set, int, int, op_arg *, int, int *);
 
 extern "C"
 void op_timers(double *, double *);
@@ -141,25 +159,34 @@ void op_exit();
 
 template < class T >
 op_dat op_decl_dat(op_set set, int dim, char const *type,
-                                T *dat, char const *name){
-  if (type_error(dat,type)) {
+                               T *data, char const *name){
+  if (type_error(data,type)) {
     printf("incorrect type specified for dataset \"%s\" \n",name); exit(1);
   }
-  return op_decl_dat_core(set, dim, type, sizeof(T), (void *)dat, name);
+  return op_decl_dat_char(set, dim, type, sizeof(T), (char *)data, name);
 }
 
 template < class T >
-void op_decl_const2(char const *name, int dim, char const *type, T *dat){
-  if (type_error(dat,type)) {
+void op_decl_const2(char const *name, int dim, char const *type, T *data){
+  if (type_error(data,type)) {
     printf("incorrect type specified for constant \"%s\" \n",name); exit(1);
   }
-  op_decl_const_char(dim, type, sizeof(T), (char *)dat, name);
+  op_decl_const_char(dim, type, sizeof(T), (char *)data, name);
 }
 
 template < class T >
-void op_decl_const(int dim, char const *type, T *dat){
-  if (type_error(dat,type)) {
+void op_decl_const(int dim, char const *type, T *data){
+  if (type_error(data,type)) {
     printf("incorrect type specified for constant in op_decl_const"); exit(1);
   }
 }
+
+template < class T >
+op_arg op_arg_gbl(T *data, int dim, char const *type, op_access acc){
+  if (type_error(data,type))
+    return op_arg_gbl_core((char *)data, dim, "error", acc);
+  else
+    return op_arg_gbl_core((char *)data, dim, type, acc);
+}
+
 

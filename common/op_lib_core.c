@@ -62,7 +62,7 @@ extern void op_mvHostToDevice(void **, int);
 extern void op_cpHostToDevice(void **, void **, int);
 
 //
-// OP functions
+// OP core functions
 //
 
 void op_init_core(int argc, char **argv, int diags){
@@ -109,8 +109,9 @@ op_set op_decl_set(int size, char const *name){
   }
 
   op_set set = (op_set) malloc(sizeof(op_set_core));
-  set->size   = size;
-  set->name   = name;
+  set->index = OP_set_index;
+  set->size  = size;
+  set->name  = name;
 
   OP_set_list[OP_set_index++] = set;
 
@@ -155,6 +156,7 @@ op_map op_decl_map(op_set from, op_set to, int dim, int *imap,
   }
 
   op_map map = (op_map) malloc(sizeof(op_map_core));
+  map->index = OP_map_index;
   map->from  = from;
   map->to    = to;
   map->dim   = dim;
@@ -167,7 +169,7 @@ op_map op_decl_map(op_set from, op_set to, int dim, int *imap,
 }
 
 op_dat op_decl_dat_core(op_set set, int dim, char const *type,
-                       int size, void *data, char const *name){
+                       int size, char *data, char const *name){
 
   if (set==NULL) {
     printf("op_decl_dat error -- invalid set for data: %s\n",name);
@@ -189,21 +191,157 @@ op_dat op_decl_dat_core(op_set set, int dim, char const *type,
     }
   }
 
-  op_dat dat = (op_dat) malloc(sizeof(op_dat_core));
-  dat->set   = set;
-  dat->dim   = dim;
-  dat->dat   = data;
-  dat->dat_d = NULL;
-  dat->name  = name;
-  dat->type  = type;
-  dat->size  = dim*size;
+  op_dat dat  = (op_dat) malloc(sizeof(op_dat_core));
+  dat->index  = OP_dat_index;
+  dat->set    = set;
+  dat->dim    = dim;
+  dat->data   = data;
+  dat->data_d = NULL;
+  dat->name   = name;
+  dat->type   = type;
+  dat->size   = dim*size;
 
-  op_cpHostToDevice((void **)&(dat->dat_d),
-                    (void **)&(dat->dat),
-                               dat->size*set->size);
   OP_dat_list[OP_dat_index++] = dat;
 
   return dat;
+}
+
+void op_exit_core(){
+
+  // free storage for plans
+
+  for(int ip=0; ip<OP_plan_index; ip++) {
+    free(OP_plans[ip].dats);
+    free(OP_plans[ip].idxs);
+    free(OP_plans[ip].maps);
+    free(OP_plans[ip].accs);
+    free(OP_plans[ip].ind_maps);
+    free(OP_plans[ip].nindirect);
+    free(OP_plans[ip].loc_maps);
+    free(OP_plans[ip].ncolblk);
+  }
+
+  free(OP_plans);
+
+  // free storage and pointers for sets, maps and data
+
+  for(int i=0; i<OP_set_index; i++) {
+    free(OP_set_list[i]);
+  }
+  free(OP_set_list);
+
+  for(int i=0; i<OP_map_index; i++) {
+    free(OP_map_list[i]);
+  }
+  free(OP_map_list);
+
+  for(int i=0; i<OP_dat_index; i++) {
+    free(OP_dat_list[i]);
+  }
+  free(OP_dat_list);
+
+  // free storage for timing info
+
+  free(OP_kernels);
+
+  // reset initial values
+
+  OP_set_index =0; OP_set_max =0;
+  OP_map_index =0; OP_map_max =0;
+  OP_dat_index =0; OP_dat_max =0;
+  OP_plan_index=0; OP_plan_max=0;
+  OP_kern_max=0;
+}
+
+//
+// op_arg routines
+//
+
+void op_err_print(const char *error_string, int m, const char *name) {
+  printf("error: arg %d in kernel \"%s\"\n",m,name);
+  printf("%s \n", error_string);
+  exit(1);
+}
+
+void op_arg_check(op_set set,int m,op_arg arg,int *ninds,const char *name){
+
+  // error checking for op_arg_dat
+
+  if (arg.argtype==OP_ARG_DAT) {
+    if (set==NULL)
+      op_err_print("invalid set",m,name);
+
+    if (arg.map==NULL && arg.dat->set!=set)
+      op_err_print("dataset set does not match loop set",m,name);
+
+    if (arg.map!=NULL && (arg.map->from!=set || arg.map->to!=arg.dat->set))
+      op_err_print("mapping error",m,name);
+
+    if ( (arg.map==NULL &&  arg.idx!=-1) ||
+         (arg.map!=NULL && (arg.idx<0 || arg.idx>=arg.map->dim) ) )
+      op_err_print("invalid index",m,name);
+
+    if (arg.dat->dim != arg.dim)
+      op_err_print("dataset dim does not match declared dim",m,name);
+
+    if (strcmp(arg.dat->type,arg.type))
+      op_err_print("dataset type does not match declared type",m,name);
+
+    if (arg.idx>=0) (*ninds)++;
+  }
+
+  // error checking for op_arg_gbl
+
+  if (arg.argtype==OP_ARG_GBL) {
+    if (!strcmp(arg.type,"error"))
+      op_err_print("datatype does not match declared type",m,name);
+
+    if (arg.dim<=0)
+      op_err_print("dimension should be strictly positive",m,name);
+
+    if (arg.data==NULL)
+      op_err_print("NULL pointer for global data",m,name);
+  }
+}
+
+op_arg op_arg_dat(op_dat dat, int idx, op_map map,
+                  int dim, const char *typ, op_access acc){
+  op_arg arg;
+
+  arg.argtype = OP_ARG_DAT;
+
+  arg.dat  = dat;
+  arg.map  = map;
+  arg.dim  = dim;
+  arg.idx  = idx;
+  if (dat!=NULL) {
+    arg.size   = dat->size;
+    arg.data   = dat->data;
+    arg.data_d = dat->data_d;
+  }
+  arg.type = typ;
+  arg.acc  = acc;
+
+  return arg;
+}
+
+
+op_arg op_arg_gbl_core(char *data, int dim,
+                       const char *typ, op_access acc){
+  op_arg arg;
+
+  arg.argtype = OP_ARG_GBL;
+
+  arg.dat  = NULL;
+  arg.map  = NULL;
+  arg.dim  = dim;
+  arg.idx  = -1;
+  arg.size = 0;
+  arg.data = data;
+  arg.type = typ;
+  arg.acc  = acc;
+
+  return arg;
 }
 
 //
@@ -270,9 +408,10 @@ void op_timing_realloc(int kernel){
   if (kernel>=OP_kern_max) {
     // printf("allocating more memory for OP_kernels \n");
     OP_kern_max_new = kernel + 10;
-    OP_kernels = (op_kernel *) realloc(OP_kernels,OP_kern_max_new*sizeof(op_kernel));
+    OP_kernels = (op_kernel *) realloc(OP_kernels,
+                OP_kern_max_new*sizeof(op_kernel));
     if (OP_kernels==NULL) {
-      printf(" op_timing_realloc error -- error reallocating memory for OP_kernels\n");
+      printf(" op_timing_realloc error \n");
       exit(-1);  
     }
 
@@ -285,57 +424,6 @@ void op_timing_realloc(int kernel){
     }
     OP_kern_max = OP_kern_max_new;
   }
-}
-
-
-
-void op_exit_core(){
-
-  // free storage for plans
-
-  for(int ip=0; ip<OP_plan_index; ip++) {
-    free(OP_plans[ip].arg);
-    free(OP_plans[ip].idxs);
-    free(OP_plans[ip].map);
-    free(OP_plans[ip].dims);
-    free(OP_plans[ip].typs);
-    free(OP_plans[ip].accs);
-    free(OP_plans[ip].ind_maps);
-    free(OP_plans[ip].maps);
-    free(OP_plans[ip].ncolblk);
-  }
-
-  free(OP_plans);
-
-  // free storage and pointers for sets, maps and data
-
-  for(int i=0; i<OP_set_index; i++) {
-    free(OP_set_list[i]);
-  }
-  free(OP_set_list);
-
-  OP_set_index = 0;
-  OP_set_max   = 0;
-
-  for(int i=0; i<OP_map_index; i++) {
-    free(OP_map_list[i]);
-  }
-  free(OP_map_list);
-
-  OP_map_index = 0;
-  OP_map_max   = 0;
-
-  for(int i=0; i<OP_dat_index; i++) {
-    free(OP_dat_list[i]);
-  }
-  free(OP_dat_list);
-
-  OP_dat_index = 0;
-  OP_dat_max   = 0;
-
-  // free storage for timing info
-
-  free(OP_kernels);
 }
 
 
@@ -375,37 +463,186 @@ int comp(const void *a2, const void *b2) {
 
 
 //
-// declaration of plan check routine
+// plan check routine
 //
 
-void op_plan_check(op_plan, int, int *);
+void op_plan_check(op_plan OP_plan, int ninds, int *inds) {
+
+  int err, ntot;
+
+  int nblock = 0;
+  for (int col=0; col<OP_plan.ncolors; col++) nblock += OP_plan.ncolblk[col];
+
+  //
+  // check total size
+  //
+
+  int nelem = 0;
+  for (int n=0; n<nblock; n++) nelem += OP_plan.nelems[n];
+
+  if (nelem != OP_plan.set->size) {
+    printf(" *** OP_plan_check: nelems error \n");
+  }
+  else if (OP_diags>6) {
+    printf(" *** OP_plan_check: nelems   OK \n");
+  }
+
+  //
+  // check offset and nelems are consistent
+  //
+
+  err  = 0;
+  ntot = 0;
+
+  for (int n=0; n<nblock; n++) {
+    err  += (OP_plan.offset[n] != ntot);
+    ntot +=  OP_plan.nelems[n];
+  }
+
+  if (err != 0) {
+    printf(" *** OP_plan_check: offset error \n");
+  }
+  else if (OP_diags>6) {
+    printf(" *** OP_plan_check: offset   OK \n");
+  }
+
+  //
+  // check blkmap permutation
+  //
+
+  int *blkmap = (int *) malloc(nblock*sizeof(int));
+  for (int n=0; n<nblock; n++) blkmap[n] = OP_plan.blkmap[n];
+  qsort(blkmap,nblock,sizeof(int),comp);
+
+  err = 0;
+  for (int n=0; n<nblock; n++) err += (blkmap[n] != n);
+
+  free(blkmap);
+
+  if (err != 0) {
+    printf(" *** OP_plan_check: blkmap error \n");
+  }
+  else if (OP_diags>6) {
+    printf(" *** OP_plan_check: blkmap   OK \n");
+  }
+
+  //
+  // check ind_offs and ind_sizes are consistent
+  //
+
+  err  = 0;
+
+  for (int i = 0; i<ninds; i++) {
+    ntot = 0;
+
+    for (int n=0; n<nblock; n++) {
+      err  += (OP_plan.ind_offs[i+n*ninds] != ntot);
+      ntot +=  OP_plan.ind_sizes[i+n*ninds];
+    }
+  }
+
+  if (err != 0) {
+    printf(" *** OP_plan_check: ind_offs error \n");
+  }
+  else if (OP_diags>6) {
+    printf(" *** OP_plan_check: ind_offs OK \n");
+  }
+
+  //
+  // check ind_maps correctly ordered within each block
+  // and indices within range
+  //
+
+  err = 0;
+
+  for (int m = 0; m<ninds; m++) {
+    int m2 = 0;
+    while(inds[m2]!=m) m2++;
+    int set_size = OP_plan.maps[m2]->to->size;
+
+    ntot = 0;
+
+    for (int n=0; n<nblock; n++) {
+      int last = -1;
+      for (int e=ntot; e<ntot+OP_plan.ind_sizes[m+n*ninds]; e++) {
+        err  += (OP_plan.ind_maps[m][e] <= last);
+        last  = OP_plan.ind_maps[m][e]; 
+      }
+      err  += (last >= set_size);
+      ntot +=  OP_plan.ind_sizes[m+n*ninds];
+    }
+  }
+
+  if (err != 0) {
+    printf(" *** OP_plan_check: ind_maps error \n");
+  }
+  else if (OP_diags>6) {
+    printf(" *** OP_plan_check: ind_maps OK \n");
+  }
+
+  //
+  // check maps (most likely source of errors)
+  //
+
+  err = 0;
+
+  for (int m=0; m<OP_plan.nargs; m++) {
+    if (OP_plan.maps[m]!=NULL) {
+      op_map map = OP_plan.maps[m];
+      int    m2  = inds[m];
+
+      ntot = 0;
+      for (int n=0; n<nblock; n++) {
+        for (int e=ntot; e<ntot+OP_plan.nelems[n]; e++) {
+          int p_local  = OP_plan.loc_maps[m][e];
+          int p_global = OP_plan.ind_maps[m2][p_local+OP_plan.ind_offs[m2+n*ninds]]; 
+
+          err += (p_global != map->map[OP_plan.idxs[m]+e*map->dim]);
+        }
+        ntot +=  OP_plan.nelems[n];
+      }
+    }
+  }
+
+  if (err != 0) {
+    printf(" *** OP_plan_check: maps error \n");
+  }
+  else if (OP_diags>6) {
+    printf(" *** OP_plan_check: maps     OK \n");
+  }
+
+
+  //
+  // check thread and block coloring
+  //
+
+  return;
+}
 
 
 //
-// find existing execution plan, or construct a new one
+// OP plan construction
 //
 
-op_plan * plan(char const *name, op_set set, int part_size, int nargs,
-               op_dat *args, int *idxs, op_map *maps, int *dims,
-               char const **typs, op_access *accs, int ninds, int *inds){
+op_plan * op_plan_core(char const *name, op_set set, int part_size,
+                     int nargs, op_arg *args, int ninds, int *inds){
 
   // first look for an existing execution plan
 
   int ip=0, match=0;
 
   while (match==0 && ip<OP_plan_index) {
-    if ( (strcmp(name,         OP_plans[ip].name)==0)
-             && (set        == OP_plans[ip].set)
-             && (nargs      == OP_plans[ip].nargs)
-             && (part_size  == OP_plans[ip].part_size) ) {
+    if ( (strcmp(name,        OP_plans[ip].name) == 0)
+             && (set       == OP_plans[ip].set       )
+             && (nargs     == OP_plans[ip].nargs     )
+             && (ninds     == OP_plans[ip].ninds     )
+             && (part_size == OP_plans[ip].part_size ) ) {
       match = 1;
       for (int m=0; m<nargs; m++) {
-        match = match && (args[m]     == OP_plans[ip].arg[m])
-                      && (maps[m]     == OP_plans[ip].map[m])
-                      && (idxs[m]     == OP_plans[ip].idxs[m])
-                      && (dims[m]     == OP_plans[ip].dims[m])
-	              && (strcmp(typs[m],OP_plans[ip].typs[m])==0)
-                      && (accs[m]     == OP_plans[ip].accs[m]);
+        match = match && (args[m].dat == OP_plans[ip].dats[m])
+                      && (args[m].map == OP_plans[ip].maps[m])
+                      && (args[m].idx == OP_plans[ip].idxs[m])
+                      && (args[m].acc == OP_plans[ip].accs[m]);
       }
     }
     ip++;
@@ -414,49 +651,18 @@ op_plan * plan(char const *name, op_set set, int part_size, int nargs,
   if (match) {
     ip--;
     if (OP_diags > 3) printf(" old execution plan #%d\n",ip);
+    OP_plans[ip].count++;
     return &(OP_plans[ip]);
   }
   else {
     if (OP_diags > 1) printf(" new execution plan #%d for kernel %s\n",ip,name);
   }
 
-  // consistency checks
-
-  if (OP_diags > 0) {
-    for (int m=0; m<nargs; m++) {
-      if (idxs[m] == -1) {
-        if (maps[m] != NULL) {
-          printf("error: mapping for arg %d in kernel \"%s\"\n",m,name);
-          exit(1);
-        }
-      }
-      else {
-        if ( (set != maps[m]->from) || (args[m]->set != maps[m]->to) ) {
-          printf("error: wrong mapping for arg %d in kernel \"%s\"\n",m,name);
-          exit(1);
-        }
-        if (maps[m]->dim <= idxs[m]) {
-          printf(" %d %d",maps[m]->dim,idxs[m]);
-          printf("error: invalid mapping index for arg %d in kernel \"%s\"\n",m,name);
-          exit(1);
-        }
-      }
-      if (strcmp(args[m]->type,typs[m])) {
-        printf("error: wrong datatype for arg %d in kernel \"%s\"\n",m,name);
-        exit(1);
-      }
-      if (args[m]->dim != dims[m] && args[m]->set != NULL) {
-        printf("error: wrong dimension for arg %d in kernel \"%s\"\n",m,name);
-        exit(1);
-      }
-    }
-  }
-
   // work out worst case shared memory requirement per element
 
   int maxbytes = 0;
   for (int m=0; m<nargs; m++) {
-    if (inds[m]>=0) maxbytes += args[m]->size;
+    if (inds[m]>=0) maxbytes += args[m].dat->size;
   }
 
   // set blocksize and number of blocks;
@@ -480,11 +686,9 @@ op_plan * plan(char const *name, op_set set, int part_size, int nargs,
 
   // allocate memory for new execution plan and store input arguments
 
-  OP_plans[ip].arg       = (op_dat *)malloc(nargs*sizeof(op_dat));
+  OP_plans[ip].dats      = (op_dat *)malloc(nargs*sizeof(op_dat));
   OP_plans[ip].idxs      = (int *)malloc(nargs*sizeof(int));
-  OP_plans[ip].map       = (op_map *)malloc(nargs*sizeof(op_map));
-  OP_plans[ip].dims      = (int *)malloc(nargs*sizeof(int));
-  OP_plans[ip].typs      = (char const **)malloc(nargs*sizeof(char *));
+  OP_plans[ip].maps      = (op_map *)malloc(nargs*sizeof(op_map));
   OP_plans[ip].accs      = (op_access *)malloc(nargs*sizeof(op_access));
 
   OP_plans[ip].nthrcol   = (int *)malloc(nblocks*sizeof(int));
@@ -493,7 +697,8 @@ op_plan * plan(char const *name, op_set set, int part_size, int nargs,
   OP_plans[ip].ind_maps  = (int **)malloc(ninds*sizeof(int *));
   OP_plans[ip].ind_offs  = (int *)malloc(nblocks*ninds*sizeof(int));
   OP_plans[ip].ind_sizes = (int *)malloc(nblocks*ninds*sizeof(int));
-  OP_plans[ip].maps      = (short **)malloc(nargs*sizeof(short *));
+  OP_plans[ip].nindirect = (int *)calloc(ninds,sizeof(int));
+  OP_plans[ip].loc_maps  = (short **)malloc(nargs*sizeof(short *));
   OP_plans[ip].nelems    = (int *)malloc(nblocks*sizeof(int));
   OP_plans[ip].ncolblk   = (int *)calloc(set->size,sizeof(int)); // max possibly needed
   OP_plans[ip].blkmap    = (int *)calloc(nblocks,sizeof(int));
@@ -506,14 +711,15 @@ op_plan * plan(char const *name, op_set set, int part_size, int nargs,
   }
 
   for (int m=0; m<nargs; m++) {
-    OP_plans[ip].maps[m] = (short *)malloc(set->size*sizeof(short));
+    if (inds[m]>=0)
+      OP_plans[ip].loc_maps[m] = (short *)malloc(set->size*sizeof(short));
+    else
+      OP_plans[ip].loc_maps[m] = NULL;
 
-    OP_plans[ip].arg[m]  = args[m];
-    OP_plans[ip].idxs[m] = idxs[m];
-    OP_plans[ip].map[m]  = maps[m];
-    OP_plans[ip].dims[m] = dims[m];
-    OP_plans[ip].typs[m] = typs[m];
-    OP_plans[ip].accs[m] = accs[m];
+    OP_plans[ip].dats[m] = args[m].dat;
+    OP_plans[ip].idxs[m] = args[m].idx;
+    OP_plans[ip].maps[m] = args[m].map;
+    OP_plans[ip].accs[m] = args[m].acc;
   }
 
   OP_plans[ip].name      = name;
@@ -521,8 +727,24 @@ op_plan * plan(char const *name, op_set set, int part_size, int nargs,
   OP_plans[ip].nargs     = nargs;
   OP_plans[ip].ninds     = ninds;
   OP_plans[ip].part_size = part_size;
+  OP_plans[ip].nblocks   = nblocks;
+  OP_plans[ip].count     = 1;
     
   OP_plan_index++;
+
+  // define aliases
+
+  op_dat    *dats = OP_plans[ip].dats;
+  int       *idxs = OP_plans[ip].idxs;
+  op_map    *maps = OP_plans[ip].maps;
+  op_access *accs = OP_plans[ip].accs;
+
+  int  *offset    = OP_plans[ip].offset;
+  int  *nelems    = OP_plans[ip].nelems;
+  int **ind_maps  = OP_plans[ip].ind_maps;
+  int  *ind_offs  = OP_plans[ip].ind_offs;
+  int  *ind_sizes = OP_plans[ip].ind_sizes;
+  int  *nindirect = OP_plans[ip].nindirect;
 
   // allocate working arrays
 
@@ -541,16 +763,13 @@ op_plan * plan(char const *name, op_set set, int part_size, int nargs,
 
   // process set one block at a time
 
-  int *nindirect;
-  nindirect = (int *)calloc(ninds,sizeof(int));  // total number of indirect elements
-
   float total_colors = 0;
 
   for (int b=0; b<nblocks; b++) {
     int bs = MIN(bsize, set->size - b*bsize);
 
-    OP_plans[ip].offset[b] = b*bsize;    // offset for block
-    OP_plans[ip].nelems[b] = bs;         // size of block
+    offset[b] = b*bsize;    // offset for block
+    nelems[b] = bs;         // size of block
 
     // loop over indirection sets
 
@@ -591,52 +810,29 @@ op_plan * plan(char const *name, op_set set, int part_size, int nargs,
       // store mapping and renumbered mappings in execution plan
 
       for (int e=0; e<ne; e++) {
-        OP_plans[ip].ind_maps[m][nindirect[m]++] = work2[e];
+        ind_maps[m][nindirect[m]++] = work2[e];
         work[m][work2[e]] = e;   // inverse mapping
       }
 
       for (int m2=0; m2<nargs; m2++) {
         if (inds[m2]==m) {
           for (int e=b*bsize; e<b*bsize+bs; e++)
-            OP_plans[ip].maps[m2][e] =
+            OP_plans[ip].loc_maps[m2][e] =
                   work[m][maps[m2]->map[idxs[m2]+e*maps[m2]->dim]];
 	}
       }
 
       if (b==0) {
-        OP_plans[ip].ind_offs[m+b*ninds]  = 0;
-        OP_plans[ip].ind_sizes[m+b*ninds] = nindirect[m];
+        ind_offs[m+b*ninds]  = 0;
+        ind_sizes[m+b*ninds] = nindirect[m];
       }
       else {
-        OP_plans[ip].ind_offs[m+b*ninds]  = OP_plans[ip].ind_offs[m+(b-1)*ninds]
-                                          + OP_plans[ip].ind_sizes[m+(b-1)*ninds];
-        OP_plans[ip].ind_sizes[m+b*ninds] = nindirect[m]
-                                          - OP_plans[ip].ind_offs[m+b*ninds];
+        ind_offs[m+b*ninds]  = ind_offs[m+(b-1)*ninds]
+                             + ind_sizes[m+(b-1)*ninds];
+        ind_sizes[m+b*ninds] = nindirect[m]
+                             - ind_offs[m+b*ninds];
       }
     }
-
-
-    // print out re-numbered mappings
-
-    /*
-    for (int m=0; m<nargs; m++) {
-      if (inds[m]>=0) {
-        printf(" mapping table %d\n",m);
-        for (int e=0; e<set->size; e++)
-          printf(" map = %d\n",OP_plans[ip].maps[m][e]);
-      }
-    }
-
-    for (int m=0; m<ninds; m++) {
-      printf(" indirect set %d\n",m);
-      for (int b=0; b<nblocks; b++) {
-        printf("OP_plans[ip].ind_sizes[m+b*ninds] = %d\n",
-                OP_plans[ip].ind_sizes[m+b*ninds]);
-        printf("OP_plans[ip].ind_offs[m+b*ninds] = %d\n",
-                OP_plans[ip].ind_offs[m+b*ninds]);
-      }
-    }
-    */
 
     // now colour main set elements
 
@@ -782,7 +978,7 @@ op_plan * plan(char const *name, op_set set, int part_size, int nargs,
       int m2 = 0;
       while(inds[m2]!=m) m2++;
 
-      nbytes += ROUND_UP(OP_plans[ip].ind_sizes[m+b*ninds]*args[m2]->size);
+      nbytes += ROUND_UP(ind_sizes[m+b*ninds]*dats[m2]->size);
     }
     OP_plans[ip].nshared = MAX(OP_plans[ip].nshared,nbytes);
     total_shared += nbytes;
@@ -792,18 +988,23 @@ op_plan * plan(char const *name, op_set set, int part_size, int nargs,
 
   OP_plans[ip].transfer  = 0;
   OP_plans[ip].transfer2 = 0;
+  float transfer3 = 0;
 
   for (int b=0; b<nblocks; b++) {
     for (int m=0; m<nargs; m++) {
       if (inds[m]<0) {
         float fac = 2.0f;
         if (accs[m]==OP_READ) fac = 1.0f;
-        OP_plans[ip].transfer  += fac*OP_plans[ip].nelems[b]*args[m]->size;
-        OP_plans[ip].transfer2 += fac*OP_plans[ip].nelems[b]*args[m]->size;
+        if (dats[m]!=NULL) {
+        OP_plans[ip].transfer  += fac*nelems[b]*dats[m]->size;
+        OP_plans[ip].transfer2 += fac*nelems[b]*dats[m]->size;
+        transfer3              += fac*nelems[b]*dats[m]->size; 
+	}
       }
       else {
-        OP_plans[ip].transfer  += OP_plans[ip].nelems[b]*sizeof(short);
-        OP_plans[ip].transfer2 += OP_plans[ip].nelems[b]*sizeof(short);
+        OP_plans[ip].transfer  += nelems[b]*sizeof(short);
+        OP_plans[ip].transfer2 += nelems[b]*sizeof(short);
+        transfer3              += nelems[b]*sizeof(short);
       }
     }
     for (int m=0; m<ninds; m++) {
@@ -812,21 +1013,35 @@ op_plan * plan(char const *name, op_set set, int part_size, int nargs,
       float fac = 2.0f;
       if (accs[m2]==OP_READ) fac = 1.0f;
       OP_plans[ip].transfer +=
-                      fac*OP_plans[ip].ind_sizes[m+b*ninds]*args[m2]->size;
+                      fac*ind_sizes[m+b*ninds]*dats[m2]->size;
 
       // work out how many cache lines are used by indirect addressing
 
-      int i_map, l_new, l_old=-1;
-      int e0 = OP_plans[ip].ind_offs[m+b*ninds];
-      int e1 = e0 + OP_plans[ip].ind_sizes[m+b*ninds];
+      int i_map, l_new, l_old;
+      int e0 = ind_offs[m+b*ninds];
+      int e1 = e0 + ind_sizes[m+b*ninds];
+
+      l_old = -1;
 
       for (int e=e0; e<e1; e++) {
-        i_map = OP_plans[ip].ind_maps[m][e];
-        l_new = (i_map*args[m2]->size)/OP_cache_line_size;
+        i_map = ind_maps[m][e];
+        l_new = (i_map*dats[m2]->size)/OP_cache_line_size;
         if (l_new>l_old) OP_plans[ip].transfer2 += fac*OP_cache_line_size;
         l_old = l_new;
-        l_new = ((i_map+1)*args[m2]->size-1)/OP_cache_line_size;
+        l_new = ((i_map+1)*dats[m2]->size-1)/OP_cache_line_size;
         OP_plans[ip].transfer2 += fac*(l_new-l_old)*OP_cache_line_size;
+        l_old = l_new;
+      }
+
+      l_old = -1;
+
+      for (int e=e0; e<e1; e++) {
+        i_map = ind_maps[m][e];
+        l_new = (i_map*dats[m2]->size)/(dats[m2]->dim*OP_cache_line_size);
+        if (l_new>l_old) transfer3 += fac*dats[m2]->dim*OP_cache_line_size;
+        l_old = l_new;
+        l_new = ((i_map+1)*dats[m2]->size-1)/(dats[m2]->dim*OP_cache_line_size);
+        transfer3 += fac*(l_new-l_old)*dats[m2]->dim*OP_cache_line_size;
         l_old = l_new;
       }
 
@@ -834,8 +1049,9 @@ op_plan * plan(char const *name, op_set set, int part_size, int nargs,
 
       fac = 1.0f;
       if (accs[m2]==OP_RW) fac = 2.0f;
-      OP_plans[ip].transfer  += fac*OP_plans[ip].ind_sizes[m+b*ninds]*sizeof(int);
-      OP_plans[ip].transfer2 += fac*OP_plans[ip].ind_sizes[m+b*ninds]*sizeof(int);
+      OP_plans[ip].transfer  += fac*ind_sizes[m+b*ninds]*sizeof(int);
+      OP_plans[ip].transfer2 += fac*ind_sizes[m+b*ninds]*sizeof(int);
+      transfer3              += fac*ind_sizes[m+b*ninds]*sizeof(int);
     }
   }
 
@@ -850,37 +1066,15 @@ op_plan * plan(char const *name, op_set set, int part_size, int nargs,
     printf(" average data reuse     = %.2f \n",maxbytes*(set->size/total_shared));
     printf(" data transfer (used)   = %.2f MB \n",
                                        OP_plans[ip].transfer/(1024.0f*1024.0f));
-    printf(" data transfer (total)  = %.2f MB \n\n",
+    printf(" data transfer (total)  = %.2f MB \n",
                                        OP_plans[ip].transfer2/(1024.0f*1024.0f));
+    printf(" SoA/AoS transfer ratio = %.2f \n\n",
+                                       transfer3 / OP_plans[ip].transfer2);
   }
 
   // validate plan info
 
   op_plan_check(OP_plans[ip],ninds,inds);
-
-  // move plan arrays to GPU
-
-  for (int m=0; m<ninds; m++) {
-    op_mvHostToDevice((void **)&(OP_plans[ip].ind_maps[m]),
-                    sizeof(int)*nindirect[m]);
-  }
-
-  for (int m=0; m<nargs; m++) {
-    if (inds[m]>=0)
-      op_mvHostToDevice((void **)&(OP_plans[ip].maps[m]), sizeof(short)*set->size);
-    else {
-      free(OP_plans[ip].maps[m]);
-      OP_plans[ip].maps[m] = NULL;
-    }
-  }
-
-  op_mvHostToDevice((void **)&(OP_plans[ip].ind_sizes),sizeof(int)*nblocks*ninds);
-  op_mvHostToDevice((void **)&(OP_plans[ip].ind_offs), sizeof(int)*nblocks*ninds);
-  op_mvHostToDevice((void **)&(OP_plans[ip].nthrcol),sizeof(int)*nblocks);
-  op_mvHostToDevice((void **)&(OP_plans[ip].thrcol ),sizeof(int)*set->size);
-  op_mvHostToDevice((void **)&(OP_plans[ip].offset ),sizeof(int)*nblocks);
-  op_mvHostToDevice((void **)&(OP_plans[ip].nelems ),sizeof(int)*nblocks);
-  op_mvHostToDevice((void **)&(OP_plans[ip].blkmap ),sizeof(int)*nblocks);
 
   // free work arrays
 
@@ -888,163 +1082,9 @@ op_plan * plan(char const *name, op_set set, int part_size, int nargs,
   free(work);
   free(work2);
   free(blk_col);
-  free(nindirect);
 
   // return pointer to plan
 
   return &(OP_plans[ip]);
 }
 
-
-void op_plan_check(op_plan OP_plan, int ninds, int *inds) {
-
-  int err, ntot;
-
-  int nblock = 0;
-  for (int col=0; col<OP_plan.ncolors; col++) nblock += OP_plan.ncolblk[col];
-
-  //
-  // check total size
-  //
-
-  int nelem = 0;
-  for (int n=0; n<nblock; n++) nelem += OP_plan.nelems[n];
-
-  if (nelem != OP_plan.set->size) {
-    printf(" *** OP_plan_check: nelems error \n");
-  }
-  else if (OP_diags>6) {
-    printf(" *** OP_plan_check: nelems   OK \n");
-  }
-
-  //
-  // check offset and nelems are consistent
-  //
-
-  err  = 0;
-  ntot = 0;
-
-  for (int n=0; n<nblock; n++) {
-    err  += (OP_plan.offset[n] != ntot);
-    ntot +=  OP_plan.nelems[n];
-  }
-
-  if (err != 0) {
-    printf(" *** OP_plan_check: offset error \n");
-  }
-  else if (OP_diags>6) {
-    printf(" *** OP_plan_check: offset   OK \n");
-  }
-
-  //
-  // check blkmap permutation
-  //
-
-  int *blkmap = (int *) malloc(nblock*sizeof(int));
-  for (int n=0; n<nblock; n++) blkmap[n] = OP_plan.blkmap[n];
-  qsort(blkmap,nblock,sizeof(int),comp);
-
-  err = 0;
-  for (int n=0; n<nblock; n++) err += (blkmap[n] != n);
-
-  free(blkmap);
-
-  if (err != 0) {
-    printf(" *** OP_plan_check: blkmap error \n");
-  }
-  else if (OP_diags>6) {
-    printf(" *** OP_plan_check: blkmap   OK \n");
-  }
-
-  //
-  // check ind_offs and ind_sizes are consistent
-  //
-
-  err  = 0;
-
-  for (int i = 0; i<ninds; i++) {
-    ntot = 0;
-
-    for (int n=0; n<nblock; n++) {
-      err  += (OP_plan.ind_offs[i+n*ninds] != ntot);
-      ntot +=  OP_plan.ind_sizes[i+n*ninds];
-    }
-  }
-
-  if (err != 0) {
-    printf(" *** OP_plan_check: ind_offs error \n");
-  }
-  else if (OP_diags>6) {
-    printf(" *** OP_plan_check: ind_offs OK \n");
-  }
-
-  //
-  // check ind_maps correctly ordered within each block
-  // and indices within range
-  //
-
-  err = 0;
-
-  for (int m = 0; m<ninds; m++) {
-    int m2 = 0;
-    while(inds[m2]!=m) m2++;
-    int set_size = OP_plan.map[m2]->to->size;
-
-    ntot = 0;
-
-    for (int n=0; n<nblock; n++) {
-      int last = -1;
-      for (int e=ntot; e<ntot+OP_plan.ind_sizes[m+n*ninds]; e++) {
-        err  += (OP_plan.ind_maps[m][e] <= last);
-        last  = OP_plan.ind_maps[m][e]; 
-      }
-      err  += (last >= set_size);
-      ntot +=  OP_plan.ind_sizes[m+n*ninds];
-    }
-  }
-
-  if (err != 0) {
-    printf(" *** OP_plan_check: ind_maps error \n");
-  }
-  else if (OP_diags>6) {
-    printf(" *** OP_plan_check: ind_maps OK \n");
-  }
-
-  //
-  // check maps (most likely source of errors)
-  //
-
-  err = 0;
-
-  for (int m=0; m<OP_plan.nargs; m++) {
-    if (OP_plan.map[m]!=NULL) {
-      op_map map = OP_plan.map[m];
-      int    m2  = inds[m];
-
-      ntot = 0;
-      for (int n=0; n<nblock; n++) {
-        for (int e=ntot; e<ntot+OP_plan.nelems[n]; e++) {
-          int p_local  = OP_plan.maps[m][e];
-          int p_global = OP_plan.ind_maps[m2][p_local+OP_plan.ind_offs[m2+n*ninds]]; 
-
-          err += (p_global != map->map[OP_plan.idxs[m]+e*map->dim]);
-        }
-        ntot +=  OP_plan.nelems[n];
-      }
-    }
-  }
-
-  if (err != 0) {
-    printf(" *** OP_plan_check: maps error \n");
-  }
-  else if (OP_diags>6) {
-    printf(" *** OP_plan_check: maps     OK \n");
-  }
-
-
-  //
-  // check thread and block coloring
-  //
-
-  return;
-}

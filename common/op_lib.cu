@@ -94,9 +94,35 @@ inline void cutilDeviceInit(int argc, char **argv) {
   cutilSafeCall(cudaSetDevice(0));
 }
 
+//
+// routines to move arrays to/from GPU device
+//
+
+void op_mvHostToDevice(void **map, int size) {
+  void *tmp;
+  cutilSafeCall(cudaMalloc(&tmp, size));
+  cutilSafeCall(cudaMemcpy(tmp, *map, size, cudaMemcpyHostToDevice));
+  cutilSafeCall(cudaThreadSynchronize());
+  free(*map);
+  *map = tmp;
+}
+
+void op_cpHostToDevice(void **data_d, void **data_h, int size) {
+  cutilSafeCall(cudaMalloc(data_d, size));
+  cutilSafeCall(cudaMemcpy(*data_d, *data_h, size, cudaMemcpyHostToDevice));
+  cutilSafeCall(cudaThreadSynchronize());
+}
+
+void op_fetch_data(op_dat dat) {
+  cutilSafeCall(cudaMemcpy(dat->data, dat->data_d,
+                           dat->size*dat->set->size,
+                cudaMemcpyDeviceToHost));
+  cutilSafeCall(cudaThreadSynchronize());
+}
+
 
 //
-// CUDA-specific initialisation and exit
+// CUDA-specific OP2 functions
 //
 
 void op_init(int argc, char **argv, int diags){
@@ -116,13 +142,54 @@ void op_init(int argc, char **argv, int diags){
   printf("\n 16/48 L1/shared \n");
 }
 
+op_dat op_decl_dat_char(op_set set, int dim, char const *type,
+                        int size, char *data, char const *name){
+  op_dat dat = op_decl_dat_core(set, dim, type, size, data, name);
+
+  op_cpHostToDevice((void **)&(dat->data_d),
+                    (void **)&(dat->data),
+                               dat->size*set->size);
+  return dat;
+}
+
+op_plan *op_plan_get(char const *name, op_set set, int part_size,
+                     int nargs, op_arg *args, int ninds, int *inds){
+
+  op_plan *plan = op_plan_core(name, set, part_size,
+                                   nargs, args, ninds, inds);
+
+  // move plan arrays to GPU if first time
+
+  if (plan->count == 1) {
+    for (int m=0; m<ninds; m++)
+      op_mvHostToDevice((void **)&(plan->ind_maps[m]),
+                      sizeof(int)*plan->nindirect[m]);
+
+    for (int m=0; m<nargs; m++)
+      if (plan->loc_maps[m] != NULL)
+        op_mvHostToDevice((void **)&(plan->loc_maps[m]),
+                          sizeof(short)*plan->set->size);
+
+    op_mvHostToDevice((void **)&(plan->ind_sizes),sizeof(int)*plan->nblocks
+                                                           *plan->ninds);
+    op_mvHostToDevice((void **)&(plan->ind_offs), sizeof(int)*plan->nblocks
+                                                           *plan->ninds);
+    op_mvHostToDevice((void **)&(plan->nthrcol),sizeof(int)*plan->nblocks);
+    op_mvHostToDevice((void **)&(plan->thrcol ),sizeof(int)*plan->set->size);
+    op_mvHostToDevice((void **)&(plan->offset ),sizeof(int)*plan->nblocks);
+    op_mvHostToDevice((void **)&(plan->nelems ),sizeof(int)*plan->nblocks);
+    op_mvHostToDevice((void **)&(plan->blkmap ),sizeof(int)*plan->nblocks);
+  }
+  return plan;
+}
+
 void op_exit(){
   for(int ip=0; ip<OP_plan_index; ip++) {
-    for (int m=0; m<OP_plans[ip].nargs; m++)
-      if (OP_plans[ip].maps[m] != NULL)
-        cutilSafeCall(cudaFree(OP_plans[ip].maps[m]));
     for (int m=0; m<OP_plans[ip].ninds; m++)
       cutilSafeCall(cudaFree(OP_plans[ip].ind_maps[m]));
+    for (int m=0; m<OP_plans[ip].nargs; m++)
+      if (OP_plans[ip].loc_maps[m] != NULL)
+        cutilSafeCall(cudaFree(OP_plans[ip].loc_maps[m]));
     cutilSafeCall(cudaFree(OP_plans[ip].ind_offs));
     cutilSafeCall(cudaFree(OP_plans[ip].ind_sizes));
     cutilSafeCall(cudaFree(OP_plans[ip].nthrcol));
@@ -133,41 +200,12 @@ void op_exit(){
   }
 
   for(int i=0; i<OP_dat_index; i++) {
-    cutilSafeCall(cudaFree(OP_dat_list[i]->dat_d));
+    cutilSafeCall(cudaFree(OP_dat_list[i]->data_d));
   }
 
   op_exit_core();
 
   cudaThreadExit();
-}
-
-
-//
-// routines to move arrays to/from GPU device
-//
-
-extern "C"
-void op_mvHostToDevice(void **map, int size) {
-  void *tmp;
-  cutilSafeCall(cudaMalloc(&tmp, size));
-  cutilSafeCall(cudaMemcpy(tmp, *map, size, cudaMemcpyHostToDevice));
-  cutilSafeCall(cudaThreadSynchronize());
-  free(*map);
-  *map = tmp;
-}
-
-extern "C"
-void op_cpHostToDevice(void **dat_d, void **dat_h, int size) {
-  cutilSafeCall(cudaMalloc(dat_d, size));
-  cutilSafeCall(cudaMemcpy(*dat_d, *dat_h, size, cudaMemcpyHostToDevice));
-  cutilSafeCall(cudaThreadSynchronize());
-}
-
-void op_fetch_data(op_dat data) {
-  cutilSafeCall(cudaMemcpy(data->dat, data->dat_d,
-                           data->size*data->set->size,
-                cudaMemcpyDeviceToHost));
-  cutilSafeCall(cudaThreadSynchronize());
 }
 
 

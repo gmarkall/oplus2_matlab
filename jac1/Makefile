@@ -59,7 +59,7 @@ jac_cuda:	jac_op.cpp jac_kernels_cu.o Makefile $(OP2_LIB)
 
 jac_kernels_cu.o:	       res.h         update.h         \
                 jac_kernels.cu res_kernel.cu update_kernel.cu \
-		Makefile $(OP2_H)
+		Makefile $(OP2_H) $(OP2)/op_lib.cu
 		nvcc $(INC) $(NVCCFLAGS) -c -o jac_kernels_cu.o jac_kernels.cu
 
 #
