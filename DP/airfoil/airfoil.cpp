@@ -2,7 +2,7 @@
   Open source copyright declaration based on BSD open source template:
   http://www.opensource.org/licenses/bsd-license.php
 
-* Copyright (c) 2009, Mike Giles
+* Copyright (c) 2009-2011, Mike Giles
 * All rights reserved.
 *
 * Redistribution and use in source and binary forms, with or without
@@ -30,7 +30,7 @@
 //
 //     Nonlinear airfoil lift calculation
 //
-//     Written by Mike Giles, 2010, based on FORTRAN code
+//     Written by Mike Giles, 2010-2011, based on FORTRAN code
 //     by Devendra Ghate and Mike Giles, 2005
 //
 
@@ -72,10 +72,6 @@ int main(int argc, char **argv){
 
   int    nnode,ncell,nedge,nbedge,niter;
   double  rms;
-
-  op_set nodes, edges, bedges, cells;
-  op_map pedge, pecell, pbedge, pbecell, pcell;
-  op_dat p_x, p_q, p_qold, p_res, p_adt, p_bound;
 
   // read in grid
 
@@ -166,31 +162,31 @@ int main(int argc, char **argv){
 
   // declare sets, pointers, datasets and global constants
 
-  op_decl_set(nnode,  nodes, "nodes");
-  op_decl_set(nedge,  edges, "edges");
-  op_decl_set(nbedge, bedges,"bedges");
-  op_decl_set(ncell,  cells, "cells");
+  op_set nodes  = op_decl_set(nnode,  "nodes");
+  op_set edges  = op_decl_set(nedge,  "edges");
+  op_set bedges = op_decl_set(nbedge, "bedges");
+  op_set cells  = op_decl_set(ncell,  "cells");
 
-  op_decl_map(edges, nodes,2,edge,  pedge,  "pedge");
-  op_decl_map(edges, cells,2,ecell, pecell, "pecell");
-  op_decl_map(bedges,nodes,2,bedge, pbedge, "pbedge");
-  op_decl_map(bedges,cells,1,becell,pbecell,"pbecell");
-  op_decl_map(cells, nodes,4,cell,  pcell,  "pcell");
+  op_map pedge   = op_decl_map(edges, nodes,2,edge,  "pedge");
+  op_map pecell  = op_decl_map(edges, cells,2,ecell, "pecell");
+  op_map pbedge  = op_decl_map(bedges,nodes,2,bedge, "pbedge");
+  op_map pbecell = op_decl_map(bedges,cells,1,becell,"pbecell");
+  op_map pcell   = op_decl_map(cells, nodes,4,cell,  "pcell");
 
-  op_decl_dat(bedges,1,"int"  ,bound,p_bound,"p_bound");
-  op_decl_dat(nodes ,2,"double",x    ,p_x    ,"p_x");
-  op_decl_dat(cells ,4,"double",q    ,p_q    ,"p_q");
-  op_decl_dat(cells ,4,"double",qold ,p_qold ,"p_qold");
-  op_decl_dat(cells ,1,"double",adt  ,p_adt  ,"p_adt");
-  op_decl_dat(cells ,4,"double",res  ,p_res  ,"p_res");
+  op_dat p_bound = op_decl_dat(bedges,1,"int"  ,bound,"p_bound");
+  op_dat p_x     = op_decl_dat(nodes ,2,"double",x    ,"p_x");
+  op_dat p_q     = op_decl_dat(cells ,4,"double",q    ,"p_q");
+  op_dat p_qold  = op_decl_dat(cells ,4,"double",qold ,"p_qold");
+  op_dat p_adt   = op_decl_dat(cells ,1,"double",adt  ,"p_adt");
+  op_dat p_res   = op_decl_dat(cells ,4,"double",res  ,"p_res");
 
-  op_decl_const(1,"double",&gam  ,"gam");
-  op_decl_const(1,"double",&gm1  ,"gm1");
-  op_decl_const(1,"double",&cfl  ,"cfl");
-  op_decl_const(1,"double",&eps  ,"eps");
-  op_decl_const(1,"double",&mach ,"mach");
-  op_decl_const(1,"double",&alpha,"alpha");
-  op_decl_const(4,"double",qinf  ,"qinf");
+  op_decl_const(1,"double",&gam  );
+  op_decl_const(1,"double",&gm1  );
+  op_decl_const(1,"double",&cfl  );
+  op_decl_const(1,"double",&eps  );
+  op_decl_const(1,"double",&mach );
+  op_decl_const(1,"double",&alpha);
+  op_decl_const(4,"double",qinf  );
 
   op_diagnostic_output();
 
@@ -202,9 +198,9 @@ int main(int argc, char **argv){
 
 //  save old flow solution
 
-    op_par_loop_2(save_soln,"save_soln", cells,
-                  p_q,   -1,OP_ID, 4,"double",OP_READ,
-                  p_qold,-1,OP_ID, 4,"double",OP_WRITE);
+    op_par_loop(save_soln,"save_soln", cells,
+                op_arg_dat(p_q,   -1,OP_ID, 4,"double",OP_READ ),
+                op_arg_dat(p_qold,-1,OP_ID, 4,"double",OP_WRITE));
 
 //  predictor/corrector update loop
 
@@ -212,44 +208,44 @@ int main(int argc, char **argv){
 
 //    calculate area/timstep
 
-      op_par_loop_6(adt_calc,"adt_calc",cells,
-                    p_x,   0,pcell, 2,"double",OP_READ,
-                    p_x,   1,pcell, 2,"double",OP_READ,
-                    p_x,   2,pcell, 2,"double",OP_READ,
-                    p_x,   3,pcell, 2,"double",OP_READ,
-                    p_q,  -1,OP_ID, 4,"double",OP_READ,
-                    p_adt,-1,OP_ID, 1,"double",OP_WRITE);
+      op_par_loop(adt_calc,"adt_calc",cells,
+                  op_arg_dat(p_x,   0,pcell, 2,"double",OP_READ ),
+                  op_arg_dat(p_x,   1,pcell, 2,"double",OP_READ ),
+                  op_arg_dat(p_x,   2,pcell, 2,"double",OP_READ ),
+                  op_arg_dat(p_x,   3,pcell, 2,"double",OP_READ ),
+                  op_arg_dat(p_q,  -1,OP_ID, 4,"double",OP_READ ),
+                  op_arg_dat(p_adt,-1,OP_ID, 1,"double",OP_WRITE));
 
 //    calculate flux residual
 
-      op_par_loop_8(res_calc,"res_calc",edges,
-                    p_x,    0,pedge, 2,"double",OP_READ,
-                    p_x,    1,pedge, 2,"double",OP_READ,
-                    p_q,    0,pecell,4,"double",OP_READ,
-                    p_q,    1,pecell,4,"double",OP_READ,
-                    p_adt,  0,pecell,1,"double",OP_READ,
-                    p_adt,  1,pecell,1,"double",OP_READ,
-                    p_res,  0,pecell,4,"double",OP_INC,
-                    p_res,  1,pecell,4,"double",OP_INC);
+      op_par_loop(res_calc,"res_calc",edges,
+                  op_arg_dat(p_x,    0,pedge, 2,"double",OP_READ),
+                  op_arg_dat(p_x,    1,pedge, 2,"double",OP_READ),
+                  op_arg_dat(p_q,    0,pecell,4,"double",OP_READ),
+                  op_arg_dat(p_q,    1,pecell,4,"double",OP_READ),
+                  op_arg_dat(p_adt,  0,pecell,1,"double",OP_READ),
+                  op_arg_dat(p_adt,  1,pecell,1,"double",OP_READ),
+                  op_arg_dat(p_res,  0,pecell,4,"double",OP_INC ),
+                  op_arg_dat(p_res,  1,pecell,4,"double",OP_INC ));
 
-      op_par_loop_6(bres_calc,"bres_calc",bedges,
-                    p_x,     0,pbedge, 2,"double",OP_READ,
-                    p_x,     1,pbedge, 2,"double",OP_READ,
-                    p_q,     0,pbecell,4,"double",OP_READ,
-                    p_adt,   0,pbecell,1,"double",OP_READ,
-                    p_res,   0,pbecell,4,"double",OP_INC,
-                    p_bound,-1,OP_ID  ,1,"int",  OP_READ);
+      op_par_loop(bres_calc,"bres_calc",bedges,
+                  op_arg_dat(p_x,     0,pbedge, 2,"double",OP_READ),
+                  op_arg_dat(p_x,     1,pbedge, 2,"double",OP_READ),
+                  op_arg_dat(p_q,     0,pbecell,4,"double",OP_READ),
+                  op_arg_dat(p_adt,   0,pbecell,1,"double",OP_READ),
+                  op_arg_dat(p_res,   0,pbecell,4,"double",OP_INC ),
+                  op_arg_dat(p_bound,-1,OP_ID  ,1,"int",  OP_READ));
 
 //    update flow field
 
       rms = 0.0;
 
-      op_par_loop_5(update,"update",cells,
-                    p_qold,-1,OP_ID, 4,"double",OP_READ,
-                    p_q,   -1,OP_ID, 4,"double",OP_WRITE,
-                    p_res, -1,OP_ID, 4,"double",OP_RW,
-                    p_adt, -1,OP_ID, 1,"double",OP_READ,
-                    &rms,  -1,OP_GBL,1,"double",OP_INC);
+      op_par_loop(update,"update",cells,
+                  op_arg_dat(p_qold,-1,OP_ID, 4,"double",OP_READ ),
+                  op_arg_dat(p_q,   -1,OP_ID, 4,"double",OP_WRITE),
+                  op_arg_dat(p_res, -1,OP_ID, 4,"double",OP_RW   ),
+                  op_arg_dat(p_adt, -1,OP_ID, 1,"double",OP_READ ),
+                  op_arg_gbl(&rms,1,"double",OP_INC));
     }
 
 //  print iteration history
