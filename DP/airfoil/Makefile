@@ -27,7 +27,7 @@ PARMETISLIB 	:= $(PARMETIS_HOME)/libparmetis.a $(PARMETIS_HOME)/libmetis.a
 #CCFLAGS	:= -g -fPIC -DUNIX -Wall -Wextra
 #NVCCFLAGS	:= -g -G -arch=sm_20 -Xptxas=-v -use_fast_math
 
-CCFLAGS		:= -O3 -ipo -vec-report -xSSE2,SSE3,SSE3,SSE4.1,SSE4.2 #-g -DDEBUG
+CCFLAGS		:= -O3 -vec-report -xSSE2,SSE3,SSE3,SSE4.1,SSE4.2 -g #-DDEBUG
 
 
 #NVCCFLAGS	:= -O3 -maxrregcount 48 -arch=sm_20 \
@@ -36,8 +36,9 @@ NVCCFLAGS	:= -O3 -arch=sm_20 \
 		   -Xptxas -dlcm=ca -Xptxas=-v -use_fast_math
 LIBS		:= $(LIB) -lcudart 
 OMP		:= -openmp -openmp-report2
-OP2_H		:= $(OP2)/op_seq.h $(OP2)/op_lib.h $(OP2)/op_lib_core.h $(OP2)/op_mpi_core.h \
-		$(OP2)/op_mpi_part_core.h
+OP2_H		:= $(OP2)/op_seq.h $(OP2)/op_mpi_seq.h $(OP2)/op_lib.h \
+			$(OP2)/op_lib_core.h $(OP2)/op_mpi_core.h \
+			$(OP2)/op_mpi_part_core.h
 OP2_LIB		:= $(OP2)/op_lib.a $(PARMETISLIB)
 
 
@@ -73,7 +74,7 @@ airfoil_seq:	airfoil.cpp save_soln.h adt_calc.h res_calc.h bres_calc.h \
 
 
 airfoil_mpi:	airfoil_mpi.cpp save_soln.h adt_calc.h res_calc.h bres_calc.h \
-		Makefile airfoil_mpi_kernels.cpp $(OP2_H) $(OP2_LIB)
+		Makefile $(OP2_H) $(OP2_LIB)
 		$(CXX) $(CCFLAGS) $(INC) -o airfoil_mpi airfoil_mpi.cpp $(OP2_LIB) 	
 		
 

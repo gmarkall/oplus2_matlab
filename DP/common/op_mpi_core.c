@@ -400,7 +400,7 @@ void create_nonexec_set_export_list(op_set set, int* temp_list, int total_size, 
 
 
 /**--------------------------- Halo List Creation ---------------------------**/
-void op_list_create()
+void op_halo_create()
 {
     //declare timers
     double cpu_t1, cpu_t2, wall_t1, wall_t2;
@@ -1163,189 +1163,184 @@ void op_halo_destroy()
 
 /**-------------------------MPI Halo Exchange Functions----------------------**/
 
-void exchange_halo(op_set set, op_dat dat, op_access acc, int idx)
+void exchange_halo(op_set set, op_arg arg)
 {
-    if((idx != -1) && (acc == OP_READ || acc == OP_RW ) && 
-    	(dirtybit[dat->index] == 1))
-    {
-    	//printf("Exchanging Halo of data array %10s\n",dat->name);
-   	
-    	set_halo_list imp_exec_list = OP_import_sets_list[dat->set->index];
-    	set_halo_list imp_nonexec_list = OP_import_nonexec_sets_list[dat->set->index];
-    	
-    	set_halo_list exp_exec_list = OP_export_sets_list[dat->set->index];
-    	set_halo_list exp_nonexec_list = OP_export_nonexec_sets_list[dat->set->index];
-    	
-    	//-------first exchange exec elements related to this data array--------
+    //if(arg.argtype == OP_ARG_DAT)
+    //{
+	op_dat dat = arg.dat;
+	
+	if((arg.idx != -1) && (arg.acc == OP_READ || arg.acc == OP_RW ) && 
+	    (dirtybit[dat->index] == 1))
+	{
+	    //printf("Exchanging Halo of data array %10s\n",dat->name);
+	    
+	    set_halo_list imp_exec_list = OP_import_sets_list[dat->set->index];
+	    set_halo_list imp_nonexec_list = OP_import_nonexec_sets_list[dat->set->index];
+	    
+	    set_halo_list exp_exec_list = OP_export_sets_list[dat->set->index];
+	    set_halo_list exp_nonexec_list = OP_export_nonexec_sets_list[dat->set->index];
+	    
+	    //-------first exchange exec elements related to this data array--------
+	
+	    //sanity checks
+	    if(compare_sets(imp_exec_list->set,dat->set)==0) 
+		{ printf("Error: Import list and set mismatch\n"); exit(2);}
+	    if(compare_sets(exp_exec_list->set,dat->set)==0) 
+		{printf("Error: Export list and set mismatch\n"); exit(2);}
+		    
+	    MPI_Request request_send[exp_exec_list->ranks_size];
+	    char* sbuf[exp_exec_list->ranks_size];
+	    //prepare execute set element data to be exported
+	    for(int i=0; i<exp_exec_list->ranks_size; i++) {
+		sbuf[i] = malloc(exp_exec_list->sizes[i]*dat->size);
+		if(sbuf[i] == NULL) {
+		    printf(" exchange_halo -- error allocating memory:  sbuf[i]\n");
+		    exit(-1);
+		}
+	
+		for(int j = 0; j < exp_exec_list->sizes[i]; j++)
+		{
+		    int set_elem_index = exp_exec_list->list[exp_exec_list->disps[i]+j];
+		    memcpy(&sbuf[i][j*dat->size],
+			(void *)&dat->data[dat->size*(set_elem_index)],dat->size);
+		}
+		//printf("export from %d to %d data %10s, number of elements of size %d | sending:\n ",
+		//  	      my_rank, exp_exec_list->ranks[i], dat->name,exp_exec_list->sizes[i]);
+		MPI_Isend(sbuf[i],  dat->size*exp_exec_list->sizes[i],  
+		    MPI_CHAR, exp_exec_list->ranks[i],
+		    dat->index, OP_MPI_WORLD, &request_send[i]);
+	    }
+	    
+	    int init = dat->set->size*dat->size;
+	    
+	    for(int i=0; i < imp_exec_list->ranks_size; i++) {
+		//printf("import on to %d from %d data %10s, number of elements of size %d | recieving:\n ",
+		//  	  my_rank, imp_exec_list.ranks[i], dat.name, imp_exec_list.sizes[i]);
+		MPI_Recv(&(OP_dat_list[dat->index]->data[init+imp_exec_list->disps[i]*dat->size]),
+		    dat->size*imp_exec_list->sizes[i], MPI_CHAR, 
+		    imp_exec_list->ranks[i], dat->index,
+		    OP_MPI_WORLD, MPI_STATUSES_IGNORE);
+	    }
+	    MPI_Waitall(exp_exec_list->ranks_size,request_send, MPI_STATUSES_IGNORE );
+	    for(int i=0; i<exp_exec_list->ranks_size; i++) free(sbuf[i]);
+		
+	
+	    //-----second exchange nonexec elements related to this data array------
+	    //sanity checks
+	    if(compare_sets(imp_nonexec_list->set,dat->set)==0) 
+		{ printf("Error: Non-Import list and set mismatch"); exit(2);}
+	    if(compare_sets(exp_nonexec_list->set,dat->set)==0) 
+		{printf("Error: Non-Export list and set mismatch"); exit(2);}
+	
+	    
+	    MPI_Request request_nonexec_send[exp_nonexec_list->ranks_size];
+	    char* sbuf_nonexec[exp_nonexec_list->ranks_size];
+	    //prepare execute set element data to be exported
+	    for(int i=0; i<exp_nonexec_list->ranks_size; i++) {
+		sbuf_nonexec[i] = malloc(exp_nonexec_list->sizes[i]*dat->size);    	    
+		if(sbuf_nonexec[i] == NULL) {
+		    printf(" exchange_halo -- error allocating memory:  sbuf_nonexec[i]\n");
+		    exit(-1);
+		}
+		
+		for(int j = 0; j < exp_nonexec_list->sizes[i]; j++)
+		{
+		    int set_elem_index = exp_nonexec_list->list[exp_nonexec_list->disps[i]+j];
+		    memcpy(&sbuf_nonexec[i][j*dat->size],
+			(void *)&dat->data[dat->size*(set_elem_index)],dat->size);
+		}
+		
+		MPI_Isend(sbuf_nonexec[i],  dat->size*exp_nonexec_list->sizes[i],  
+		    MPI_CHAR, exp_nonexec_list->ranks[i],
+		    dat->index, OP_MPI_WORLD, &request_nonexec_send[i]);
+	    }
+	    
+	    int nonexec_init = (dat->set->size+imp_exec_list->size)*dat->size;
+	    
+	    for(int i=0; i<imp_nonexec_list->ranks_size; i++) {
+		MPI_Recv(&(OP_dat_list[dat->index]->data[nonexec_init+imp_nonexec_list->disps[i]*dat->size]),
+		    dat->size*imp_nonexec_list->sizes[i], MPI_CHAR, imp_nonexec_list->ranks[i], dat->index,
+		    OP_MPI_WORLD, MPI_STATUSES_IGNORE);
+	    }
+	    MPI_Waitall(exp_nonexec_list->ranks_size,request_nonexec_send, MPI_STATUSES_IGNORE );
+	    for(int i=0; i<exp_nonexec_list->ranks_size; i++) free(sbuf_nonexec[i]);
+		    
+	    //clear dirty bit
+	    dirtybit[dat->index] = 0;
+	}
+   // }
     
-    	//sanity checks
-    	if(compare_sets(imp_exec_list->set,dat->set)==0) 
-    	    { printf("Error: Import list and set mismatch\n"); exit(2);}
-    	if(compare_sets(exp_exec_list->set,dat->set)==0) 
-    	    {printf("Error: Export list and set mismatch\n"); exit(2);}
-        	
-    	MPI_Request request_send[exp_exec_list->ranks_size];
-    	char* sbuf[exp_exec_list->ranks_size];
-    	//prepare execute set element data to be exported
-    	for(int i=0; i<exp_exec_list->ranks_size; i++) {
-    	    sbuf[i] = malloc(exp_exec_list->sizes[i]*dat->size);
-    	    if(sbuf[i] == NULL) {
-    	    	printf(" exchange_halo -- error allocating memory:  sbuf[i]\n");
-    	    	exit(-1);
-    	    }
-    
-    	    for(int j = 0; j < exp_exec_list->sizes[i]; j++)
-    	    {
-    	    	int set_elem_index = exp_exec_list->list[exp_exec_list->disps[i]+j];
-    	    	memcpy(&sbuf[i][j*dat->size],
-    	    	    (void *)&dat->data[dat->size*(set_elem_index)],dat->size);
-    	    }
-    	    //printf("export from %d to %d data %10s, number of elements of size %d | sending:\n ",
-      	    //  	      my_rank, exp_exec_list->ranks[i], dat->name,exp_exec_list->sizes[i]);
-    	    MPI_Isend(sbuf[i],  dat->size*exp_exec_list->sizes[i],  
-    	    	MPI_CHAR, exp_exec_list->ranks[i],
-    	    	dat->index, OP_MPI_WORLD, &request_send[i]);
-    	}
-    	
-    	int init = dat->set->size*dat->size;
-    	
-    	for(int i=0; i < imp_exec_list->ranks_size; i++) {
-    	    //printf("import on to %d from %d data %10s, number of elements of size %d | recieving:\n ",
-      	    //  	  my_rank, imp_exec_list.ranks[i], dat.name, imp_exec_list.sizes[i]);
-    	    MPI_Recv(&(OP_dat_list[dat->index]->data[init+imp_exec_list->disps[i]*dat->size]),
-    	        dat->size*imp_exec_list->sizes[i], MPI_CHAR, 
-    	        imp_exec_list->ranks[i], dat->index,
-    	        OP_MPI_WORLD, MPI_STATUSES_IGNORE);
-    	}
-    	MPI_Waitall(exp_exec_list->ranks_size,request_send, MPI_STATUSES_IGNORE );
-        for(int i=0; i<exp_exec_list->ranks_size; i++) free(sbuf[i]);
-            
-
-    	//-----second exchange nonexec elements related to this data array------
-    	//sanity checks
-   	if(compare_sets(imp_nonexec_list->set,dat->set)==0) 
-   	    { printf("Error: Non-Import list and set mismatch"); exit(2);}
-    	if(compare_sets(exp_nonexec_list->set,dat->set)==0) 
-    	    {printf("Error: Non-Export list and set mismatch"); exit(2);}
-
-    	
-    	MPI_Request request_nonexec_send[exp_nonexec_list->ranks_size];
-    	char* sbuf_nonexec[exp_nonexec_list->ranks_size];
-    	//prepare execute set element data to be exported
-    	for(int i=0; i<exp_nonexec_list->ranks_size; i++) {
-    	    sbuf_nonexec[i] = malloc(exp_nonexec_list->sizes[i]*dat->size);    	    
-    	    if(sbuf_nonexec[i] == NULL) {
-    	    	printf(" exchange_halo -- error allocating memory:  sbuf_nonexec[i]\n");
-    	    	exit(-1);
-    	    }
-    	    
-    	    for(int j = 0; j < exp_nonexec_list->sizes[i]; j++)
-    	    {
-    	    	int set_elem_index = exp_nonexec_list->list[exp_nonexec_list->disps[i]+j];
-    	    	memcpy(&sbuf_nonexec[i][j*dat->size],
-    	    	    (void *)&dat->data[dat->size*(set_elem_index)],dat->size);
-    	    }
-    	    
-    	    MPI_Isend(sbuf_nonexec[i],  dat->size*exp_nonexec_list->sizes[i],  
-    	    	MPI_CHAR, exp_nonexec_list->ranks[i],
-    	    	dat->index, OP_MPI_WORLD, &request_nonexec_send[i]);
-    	}
-    	
-    	int nonexec_init = (dat->set->size+imp_exec_list->size)*dat->size;
-    	
-    	for(int i=0; i<imp_nonexec_list->ranks_size; i++) {
-    	    MPI_Recv(&(OP_dat_list[dat->index]->data[nonexec_init+imp_nonexec_list->disps[i]*dat->size]),
-    	        dat->size*imp_nonexec_list->sizes[i], MPI_CHAR, imp_nonexec_list->ranks[i], dat->index,
-    	        OP_MPI_WORLD, MPI_STATUSES_IGNORE);
-    	}
-    	MPI_Waitall(exp_nonexec_list->ranks_size,request_nonexec_send, MPI_STATUSES_IGNORE );
-        for(int i=0; i<exp_nonexec_list->ranks_size; i++) free(sbuf_nonexec[i]);
-    	    	
-    	//clear dirty bit
-    	dirtybit[dat->index] = 0;
-    }
-    
 }
 
 
-void exchange_halo_void(op_set set, void* value, op_access acc, int idx)
+void set_dirtybit(op_arg arg)
 {
-    //not a data array for halo exchange - do nothing
+    //if(arg.argtype == OP_ARG_DAT)
+    	if(arg.acc == OP_INC || arg.acc == OP_WRITE || arg.acc == OP_RW)
+    	dirtybit[arg.dat->index] = 1;
 }
 
-void set_dirtybit(op_dat dat, op_access acc)
+
+void global_reduce(op_arg *arg)
 {
-    if(acc == OP_INC || acc == OP_WRITE || acc == OP_RW)
-    	dirtybit[dat->index] = 1;
-}
-
-void set_dirtybit_void(void* value, op_access acc)
-{
-    //not a data array for halo exchange - do nothing
-}
-
-
-//global reduction functions
-void global_reduce_double(double* arg, op_access acc)
-{
-    double result;
-    if(acc == OP_INC)//global reduction
+    if(strcmp("double",arg->type)==0)
     {
-    	MPI_Reduce(arg,&result,1,MPI_DOUBLE, MPI_SUM,0, OP_MPI_WORLD);
-    	*arg = result;
+	double result;
+	if(arg->acc == OP_INC)//global reduction
+	{
+	    MPI_Reduce((double *)arg->data,&result,1,MPI_DOUBLE, MPI_SUM,0, OP_MPI_WORLD);
+	    memcpy(arg->data, &result, sizeof(double));
+	}
+	else if(arg->acc == OP_MAX)//global maximum
+	{
+	    MPI_Reduce((double *)arg->data,&result,1,MPI_DOUBLE, MPI_MAX,0, OP_MPI_WORLD);
+	    memcpy(arg->data, &result, sizeof(double));;
+	}
+	else if(arg->acc == OP_MIN)//global minimum              
+	{
+	    MPI_Reduce((double *)arg->data,&result,1,MPI_DOUBLE, MPI_MIN,0, OP_MPI_WORLD);
+	    memcpy(arg->data, &result, sizeof(double));
+	}
     }
-    else if(acc == OP_MAX)//global maximum
+    else if(strcmp("float",arg->type)==0)
     {
-    	MPI_Reduce(arg,&result,1,MPI_DOUBLE, MPI_MAX,0, OP_MPI_WORLD);
-    	*arg = result;
+	float result;
+	if(arg->acc == OP_INC)//global reduction
+	{
+	    MPI_Reduce((float *)arg->data,&result,1,MPI_FLOAT, MPI_SUM,0, OP_MPI_WORLD);
+	    memcpy(arg->data, &result, sizeof(float));
+	}
+	else if(arg->acc == OP_MAX)//global maximum
+	{
+	    MPI_Reduce((float *)arg->data,&result,1,MPI_FLOAT, MPI_MAX,0, OP_MPI_WORLD);
+	    memcpy(arg->data, &result, sizeof(float));;
+	}
+	else if(arg->acc == OP_MIN)//global minimum              
+	{
+	    MPI_Reduce((float *)arg->data,&result,1,MPI_FLOAT, MPI_MIN,0, OP_MPI_WORLD);
+	    memcpy(arg->data, &result, sizeof(float));
+	}
     }
-    else if(acc == OP_MIN)//global minimum
+    else if(strcmp("int",arg->type)==0)
     {
-	MPI_Reduce(arg,&result,1,MPI_DOUBLE, MPI_MIN,0, OP_MPI_WORLD);
-    	*arg = result;
-    }
-}
-
-void global_reduce_float(float* arg, op_access acc)
-{
-    double result;
-    if(acc == OP_INC)//global reduction
-    {
-    	MPI_Reduce(arg,&result,1,MPI_FLOAT, MPI_SUM,0, OP_MPI_WORLD);
-    	*arg = result;
-    }
-    else if(acc == OP_MAX)//global maximum
-    {
-    	MPI_Reduce(arg,&result,1,MPI_FLOAT, MPI_MAX,0, OP_MPI_WORLD);
-    	*arg = result;
-    }
-    else if(acc == OP_MIN)//global minimum
-    {
-	MPI_Reduce(arg,&result,1,MPI_FLOAT, MPI_MIN,0, OP_MPI_WORLD);
-    	*arg = result;
-    }
-}
-
-void global_reduce_int(int* arg, op_access acc)
-{
-    double result;
-    if(acc == OP_INC)//global reduction
-    {
-    	MPI_Reduce(arg,&result,1,MPI_INT, MPI_SUM,0, OP_MPI_WORLD);
-    	*arg = result;
-    }
-    else if(acc == OP_MAX)//global maximum
-    {
-    	MPI_Reduce(arg,&result,1,MPI_INT, MPI_MAX,0, OP_MPI_WORLD);
-    	*arg = result;
-    }
-    else if(acc == OP_MIN)//global minimum
-    {
-    	MPI_Reduce(arg,&result,1,MPI_INT, MPI_MIN,0, OP_MPI_WORLD);
-    	*arg = result;
+	int result;
+	if(arg->acc == OP_INC)//global reduction
+	{
+	    MPI_Reduce((int *)arg->data,&result,1,MPI_INT, MPI_SUM,0, OP_MPI_WORLD);
+	    memcpy(arg->data, &result, sizeof(int));
+	}
+	else if(arg->acc == OP_MAX)//global maximum
+	{
+	    MPI_Reduce((int *)arg->data,&result,1,MPI_INT, MPI_MAX,0, OP_MPI_WORLD);
+	    memcpy(arg->data, &result, sizeof(int));;
+	}
+	else if(arg->acc == OP_MIN)//global minimum              
+	{
+	    MPI_Reduce((int *)arg->data,&result,1,MPI_INT, MPI_MIN,0, OP_MPI_WORLD);
+	    memcpy(arg->data, &result, sizeof(int));
+	}
     }
 }
-
 
 
 

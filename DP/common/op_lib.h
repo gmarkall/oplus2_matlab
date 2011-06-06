@@ -189,31 +189,27 @@ void op_exit();
 //mpi function prototypes
 //
 extern "C" 
-void op_list_create();
+void op_halo_create();
 
 extern "C" 
 void op_halo_destroy();
 
 extern "C" 
-void exchange_halo(op_set set, op_dat dat, op_access acc, int idx);
+void exchange_halo(op_set set, op_arg arg);
 
 extern "C"
 void exchange_halo_void(op_set set, void* value, op_access acc, int idx);
 
 extern "C"
-void set_dirtybit(op_dat dat, op_access acc);
+void set_dirtybit(op_arg arg);
 
 extern "C"
 void set_dirtybit_void(void* value, op_access acc);
 
 extern "C"
-void global_reduce_double(double* arg, op_access acc);
+void global_reduce(op_arg* arg);
 
-extern "C"
-void global_reduce_float(float* arg, op_access acc);
 
-extern "C"
-void global_reduce_int(int* arg, op_access acc);
 
 extern "C"
 void op_mpi_timing_output(int my_rank);
