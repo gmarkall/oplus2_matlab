@@ -198,18 +198,10 @@ extern "C"
 void exchange_halo(op_set set, op_arg arg);
 
 extern "C"
-void exchange_halo_void(op_set set, void* value, op_access acc, int idx);
-
-extern "C"
 void set_dirtybit(op_arg arg);
 
 extern "C"
-void set_dirtybit_void(void* value, op_access acc);
-
-extern "C"
 void global_reduce(op_arg* arg);
-
-
 
 extern "C"
 void op_mpi_timing_output(int my_rank);

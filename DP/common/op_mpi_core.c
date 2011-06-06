@@ -680,8 +680,10 @@ void op_halo_create()
     	//mapping tables in each mpi process
     	OP_map_list[map->index]->map = realloc(OP_map_list[map->index]->map,
     	    (map->dim*(map->from->size+i_list->size))*sizeof(int));
-        if(OP_map_list[map->index]->map == NULL) {
-    	    	printf(" op_list_create -- error reallocating memory: OP_map_list[map->index]->map\n");
+        if(OP_map_list[map->index]->map == NULL && 
+            map->dim*(map->from->size+i_list->size) != 0) {
+    	    	printf(" op_list_create -- error reallocating memory: \
+    	    	    OP_map_list[map->index]->map\n");
     	    	exit(-1);
     	}
     	    
@@ -892,7 +894,8 @@ void op_halo_create()
     	    	//data array in each mpi process
     	    	OP_dat_list[dat->index]->data = realloc(OP_dat_list[dat->index]->data,
     	    	    (set->size+i_list->size)*dat->size);
-    	    	if(OP_dat_list[dat->index]->data == NULL) {
+    	    	if(OP_dat_list[dat->index]->data == NULL && 
+    	    	    (set->size+i_list->size)*dat->size !=0 ) {
     	    	    printf(" op_list_create -- error reallocating memory: \
     	    	    	OP_dat_list[dat->index]->data\n");
     	    	    exit(-1);
@@ -959,7 +962,8 @@ void op_halo_create()
       
     	    	OP_dat_list[dat->index]->data = realloc(OP_dat_list[dat->index]->data,
     	    	    (set->size+exec_i_list->size+i_list->size)*dat->size);
-    	    	if(OP_dat_list[dat->index]->data == NULL) {
+    	    	if(OP_dat_list[dat->index]->data == NULL && 
+    	    	    (set->size+exec_i_list->size+i_list->size)*dat->size != 0) {
     	    	    printf(" op_list_create -- error reallocating memory: \
     	    	    	OP_dat_list[dat->index]->data\n");
     	    	    exit(-1);

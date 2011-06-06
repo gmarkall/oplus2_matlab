@@ -108,6 +108,113 @@ void quickSort(int arr[], int left, int right)
     	quickSort(arr, i, right);
 }
 
+//sort arr1 and organise arr2 elements according to the sorted arr1 order
+void quickSort_2(int arr1[], int arr2[], int left, int right) 
+{
+    int i = left, j = right;
+    int tmp1,tmp2;
+    int pivot = arr1[(left + right) / 2];
+    
+    // partition
+    while (i <= j) {
+    	while (arr1[i] < pivot)i++;
+    	    while (arr1[j] > pivot)j--;
+    	    if (i <= j) {
+    	    	tmp1 = arr1[i];
+    	    	arr1[i] = arr1[j];
+    	    	arr1[j] = tmp1;
+    	    	
+    	    	tmp2 = arr2[i];
+    	    	arr2[i] = arr2[j];
+    	    	arr2[j] = tmp2;    	    	
+    	    	i++; j--;
+            }
+    };
+    // recursion
+    if (left < j)
+    	quickSort_2(arr1, arr2, left, j);
+    if (i < right)
+    	quickSort_2(arr1, arr2, i, right);
+}
+
+
+void quickSort_dat(int arr[], char dat[], int left, int right, int elem_size) 
+{
+    int i = left, j = right;
+    int tmp; 
+    char* tmp_dat = malloc(sizeof(char)*elem_size);
+    if(tmp_dat == NULL ) {
+    	printf(" quickSort_dat -- error allocating memory: char* tmp_dat\n");
+    	exit(-1);
+    }
+    int pivot = arr[(left + right) / 2];
+    
+    // partition
+    while (i <= j) {
+    	while (arr[i] < pivot)i++;
+    	    while (arr[j] > pivot)j--;
+    	    if (i <= j) {
+    	    	tmp = arr[i];
+    	    	arr[i] = arr[j];
+    	    	arr[j] = tmp;
+    	    	
+    	    	//tmp_dat = dat[i];
+    	    	memcpy(tmp_dat,(void *)&dat[i*elem_size],elem_size);
+    	    	//dat[i] = dat[j];
+    	    	memcpy(&dat[i*elem_size],(void *)&dat[j*elem_size],elem_size);
+    	    	//dat[j] = tmp_dat;
+    	    	memcpy(&dat[j*elem_size],(void *)tmp_dat,elem_size);    	    	
+    	    	i++; j--;
+            }
+    };
+    
+    // recursion
+    if (left < j)
+    	quickSort_dat(arr, dat, left, j, elem_size);
+    if (i < right)
+    	quickSort_dat(arr, dat, i, right, elem_size);
+    free(tmp_dat);
+}
+
+void quickSort_map(int arr[], int map[], int left, int right, int dim) 
+{
+    int i = left, j = right;
+    int tmp; 
+    int* tmp_map = malloc(sizeof(int)*dim);
+    if(tmp_map == NULL ) {
+    	printf(" quickSort_map -- error allocating memory: int* tmp_map\n");
+    	exit(-1);
+    }
+    
+    int pivot = arr[(left + right) / 2];
+    
+    // partition
+    while (i <= j) {
+    	while (arr[i] < pivot)i++;
+    	    while (arr[j] > pivot)j--;
+    	    if (i <= j) {
+    	    	tmp = arr[i];
+    	    	arr[i] = arr[j];
+    	    	arr[j] = tmp;
+    	    	
+    	    	//tmp_dat = dat[i];
+    	    	memcpy(tmp_map,(void *)&map[i*dim],dim*sizeof(int));
+    	    	//dat[i] = dat[j];
+    	    	memcpy(&map[i*dim],(void *)&map[j*dim],dim*sizeof(int));
+    	    	//dat[j] = tmp_dat;
+    	    	memcpy(&map[j*dim],(void *)tmp_map,dim*sizeof(int));    	    	
+    	    	i++; j--;
+            }
+    };
+    
+    // recursion
+    if (left < j)
+    	quickSort_map(arr, map, left, j, dim);
+    if (i < right)
+    	quickSort_map(arr, map, i, right, dim);
+    free(tmp_map);
+}
+
 int removeDups(int a[], int array_size)
 {
     int i, j;
@@ -125,4 +232,6 @@ int removeDups(int a[], int array_size)
     array_size = (j + 1);
     return array_size;
 }
+
+
 
