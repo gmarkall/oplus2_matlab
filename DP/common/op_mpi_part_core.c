@@ -1,3 +1,37 @@
+/*
+  Open source copyright declaration based on BSD open source template:
+  http://www.opensource.org/licenses/bsd-license.php
+
+* Copyright (c) 2009, Mike Giles
+* All rights reserved.
+*
+* Redistribution and use in source and binary forms, with or without
+* modification, are permitted provided that the following conditions are met:
+*     * Redistributions of source code must retain the above copyright
+*       notice, this list of conditions and the following disclaimer.
+*     * Redistributions in binary form must reproduce the above copyright
+*       notice, this list of conditions and the following disclaimer in the
+*       documentation and/or other materials provided with the distribution.
+*     * The name of Mike Giles may not be used to endorse or promote products
+*       derived from this software without specific prior written permission.
+*
+* THIS SOFTWARE IS PROVIDED BY Mike Giles ''AS IS'' AND ANY
+* EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
+* WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+* DISCLAIMED. IN NO EVENT SHALL Mike Giles BE LIABLE FOR ANY
+* DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES
+* (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;
+* LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND
+* ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
+* (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
+* SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+*/
+
+
+/* 
+ * written by: Gihan R. Mudalige, 07-06-2011
+ */
+
 //parmetis header
 #include <parmetis.h>
 
@@ -20,7 +54,7 @@ part* OP_part_list_original;
 void decl_partition(op_set set, int* g_index, int* partition)
 {
     
-  part p = (part) malloc(sizeof(part_core));
+  part p = (part) xmalloc(sizeof(part_core));
   p->set = set;
   p->g_index = g_index;
   p->elem_part = partition;
@@ -68,10 +102,10 @@ int compare_all_sets(op_set target_set, op_set other_sets[], int size)
 void create_exp_list(op_set set, int* temp_list, set_halo_list halo_list, 
     int size, int comm_size, int my_rank)
 {
-    int* ranks = (int *) malloc(comm_size*sizeof(int));
-    int* list = (int *) malloc((size/2)*sizeof(int));
-    int* disps = (int *) malloc(comm_size*sizeof(int));
-    int* sizes = (int *) malloc(comm_size*sizeof(int));
+    int* ranks = (int *) xmalloc(comm_size*sizeof(int));
+    int* list = (int *) xmalloc((size/2)*sizeof(int));
+    int* disps = (int *) xmalloc(comm_size*sizeof(int));
+    int* sizes = (int *) xmalloc(comm_size*sizeof(int));
     
     int ranks_size = 0;
     int total_size = 0;  
@@ -91,7 +125,7 @@ void create_exp_list(op_set set, int* temp_list, set_halo_list halo_list,
 void create_imp_list(op_set set, int* temp_list, set_halo_list halo_list, int total_size, 
     	int* ranks, int* sizes, int ranks_size, int comm_size, int my_rank)
 {
-    int* disps = (int *) malloc(comm_size*sizeof(int));
+    int* disps = (int *) xmalloc(comm_size*sizeof(int));
     disps[0] = 0;
     for(int i=0; i<ranks_size; i++)
     {
@@ -108,6 +142,106 @@ void create_imp_list(op_set set, int* temp_list, set_halo_list halo_list, int to
     
 }
 
+/**special routine to create export list during partitioning map->to set 
+from map_>from set in partition_to_set()**/
+int* create_exp_list_2(op_set set, int* temp_list, set_halo_list halo_list, 
+    int* part_list, int size, int comm_size, int my_rank)
+{
+    int* ranks = (int *) xmalloc(comm_size*sizeof(int));
+    int* to_list = xmalloc((size/3)*sizeof(int)); 
+    part_list = xmalloc((size/3)*sizeof(int)); 
+    int* disps = (int *) xmalloc(comm_size*sizeof(int));
+    int* sizes = (int *) xmalloc(comm_size*sizeof(int));
+    
+    int index = 0; int total_size = 0;
+    
+    //negative values set as an initialisation
+    for(int r = 0;r<comm_size;r++) 
+    {
+	disps[r] = ranks[r] = -99;
+	sizes[r] = 0; 
+    }
+    
+    for(int r = 0;r<comm_size;r++)
+    {
+    	sizes[index] = 0;
+	disps[index] = 0;
+	int* temp_to = (int *) xmalloc((size/3)*sizeof(int)); 
+	int* temp_part = (int *) xmalloc((size/3)*sizeof(int));
+	
+	for(int i = 0;i<size;i=i+3)
+	{
+	    if(temp_list[i]==r)
+	    {
+	    	temp_to[sizes[index]] = temp_list[i+1];
+	    	temp_part[sizes[index]] = temp_list[i+2];	
+	    	sizes[index]++;
+	    }
+	}
+	
+	if(sizes[index]>0) 
+	{
+	    ranks[index] = r;
+	    //no sorting
+	    total_size = total_size + sizes[index];
+	    //no eleminating duplicates
+	    if(index > 0) 
+	    	disps[index] = disps[index-1] +  sizes[index-1];
+	    
+	    //add to end of t_list and p_list
+	    for(int e = 0;e<sizes[index];e++)
+	    {
+	    	to_list[disps[index]+e] = temp_to[e];
+	    	part_list[disps[index]+e] = temp_part[e];
+	    }
+	    index++;	    
+	}
+	free(temp_to);
+	free(temp_part);
+    }
+    
+    
+    halo_list->set = set;
+    halo_list->size = total_size;
+    halo_list->ranks = ranks;
+    halo_list->ranks_size = index;
+    halo_list->disps = disps;
+    halo_list->sizes = sizes;
+    halo_list->list = to_list;
+    
+    return part_list;
+    
+    /*for(int i=0; i < halo_list->ranks_size; i++) {
+        for(int j = 0; j<halo_list->sizes[i]; j++)
+        {
+            printf(" %d",part_list[halo_list->disps[i]]);         	   
+        }
+        printf("\n");
+    }*/
+}
+
+/**special routine to create import list during partitioning map->to set 
+from map_>from set in partition_to_set()**/
+void create_imp_list_2(op_set set, int* temp_list, set_halo_list halo_list, 
+    int total_size, int* ranks, int* sizes, int ranks_size, int comm_size, int my_rank)
+{
+    int* disps = (int *) xmalloc(comm_size*sizeof(int));
+    disps[0] = 0;
+    for(int i=0; i<ranks_size; i++)
+    {
+    	if(i>0)disps[i] = disps[i-1]+sizes[i-1];
+    }
+    
+    halo_list->set = set;
+    halo_list->size = total_size;
+    halo_list->ranks = ranks;
+    halo_list->ranks_size = ranks_size;
+    halo_list->disps = disps;
+    halo_list->sizes = sizes;
+    halo_list->list = temp_list;    
+}
+
+
 
 /** ----use the partitioned map->to set to partition the map->from set ------**/
 int partition_from_set(op_map map, int my_rank, int comm_size, int** part_range)
@@ -116,13 +250,9 @@ int partition_from_set(op_map map, int my_rank, int comm_size, int** part_range)
     part p_set = OP_part_list[map->to->index];
     
     int cap = 100; int count = 0;
-    int* temp_list = malloc(cap*sizeof(int));
-    if(temp_list == NULL) {
-    	printf(" partition_from_set -- error allocating memory: int* temp_list\n");
-    	exit(-1);
-    }
+    int* temp_list = (int*) xmalloc(cap*sizeof(int));
     
-    set_halo_list pi_list = (set_halo_list) malloc(sizeof(set_halo_list_core));
+    set_halo_list pi_list = (set_halo_list) xmalloc(sizeof(set_halo_list_core));
     
     //go through the map and build an import list of the non-local "to" elements 
     for(int i = 0; i < map->from->size; i++)
@@ -135,11 +265,7 @@ int partition_from_set(op_map map, int my_rank, int comm_size, int** part_range)
     	    if(count>=cap)
     	    {
     	    	cap = cap*2;
-    	    	temp_list = realloc(temp_list,cap*sizeof(int));
-    	    	if(temp_list == NULL) {
-    	    	    printf(" partition_from_set -- error reallocating memory: int* temp_list\n");
-    	    	    exit(-1);
-    	    	}
+    	    	temp_list = (int *)xrealloc(temp_list,cap*sizeof(int));
     	    }
     	    
     	    if(part != my_rank)
@@ -156,18 +282,10 @@ int partition_from_set(op_map map, int my_rank, int comm_size, int** part_range)
     //now, discover neighbors and create export list of "to" elements
     int ranks_size = 0;
 
-    int* neighbors = malloc(comm_size*sizeof(int));
-    if(neighbors == NULL) {
-    	printf(" partition_from_set -- error allocating memory: int *neighbors\n");
-    	exit(-1);
-    }
-    int* sizes = malloc(comm_size*sizeof(int));
-    if(sizes == NULL) {
-    	printf(" partition_from_set -- error allocating memory: int *sizes\n");
-    	exit(-1);
-    }
+    int* neighbors = (int *)xmalloc(comm_size*sizeof(int));
+    int* sizes = (int *)xmalloc(comm_size*sizeof(int));
     
-    set_halo_list pe_list = (set_halo_list) malloc(sizeof(set_halo_list_core));
+    set_halo_list pe_list = (set_halo_list) xmalloc(sizeof(set_halo_list_core));
     find_neighbors_set(pi_list,neighbors,sizes,&ranks_size,my_rank,comm_size, OP_PART_WORLD);
     
     MPI_Request request_send[pi_list->ranks_size];
@@ -181,20 +299,10 @@ int partition_from_set(op_map map, int my_rank, int comm_size, int** part_range)
     }
     
     for(int i=0; i< ranks_size; i++) cap = cap + sizes[i];
-   
-    temp_list = malloc(cap*sizeof(int));
-    if(temp_list == NULL) {
-    	printf(" partition_from_set -- error allocating memory: int* temp_list\n");
-    	exit(-1);
-    }
-    
+    temp_list = (int *)xmalloc(cap*sizeof(int));
+
     for(int i=0; i<ranks_size; i++) {
-    	rbuf = malloc(sizes[i]*sizeof(int));
-    	if(rbuf == NULL) {
-    	    printf(" partition_from_set -- error allocating memory: int* rbuf\n");
-    	    exit(-1);
-    	}
-    	    
+    	rbuf = (int *)xmalloc(sizes[i]*sizeof(int));
     	MPI_Recv(rbuf, sizes[i], MPI_INT, neighbors[i], 1, OP_PART_WORLD,
     	    MPI_STATUSES_IGNORE );
     	memcpy(&temp_list[count],(void *)&rbuf[0],sizes[i]*sizeof(int));
@@ -211,22 +319,12 @@ int partition_from_set(op_map map, int my_rank, int comm_size, int** part_range)
     MPI_Request request_send_p[pe_list->ranks_size];
     
     //first - prepare partition information of the "to" set element to be exported
-    int** sbuf = (int **)malloc(pe_list->ranks_size*sizeof(int *));
-    if(sbuf == NULL) {
-    	printf(" partition_from_set -- error allocating memory: int** sbuf\n");
-    	exit(-1);
-    }
-    	
+    int** sbuf = (int **)xmalloc(pe_list->ranks_size*sizeof(int *));
     for(int i = 0; i < pe_list->ranks_size; i++)
     {
     	//printf("export to %d from rank %d set %s of size %d\n",
     	//   pe_list->ranks[i], my_rank, map->to->name, pe_list->sizes[i] );
-    	sbuf[i] = (int *)malloc(pe_list->sizes[i]*sizeof(int));
-    	if(sbuf[i] == NULL) {
-    	    printf(" partition_from_set -- error allocating memory: sbuf[i]\n");
-    	    exit(-1);
-    	}
-    
+    	sbuf[i] = (int *)xmalloc(pe_list->sizes[i]*sizeof(int));
     	for(int j = 0; j<pe_list->sizes[i]; j++)
     	{
     	    int elem = pe_list->list[pe_list->disps[i]+j];
@@ -237,12 +335,8 @@ int partition_from_set(op_map map, int my_rank, int comm_size, int** part_range)
     }
     
     //second - prepare space for the incomming partition information of the "to" set
-    int* imp_part = (int *)malloc(sizeof(int)*pi_list->size); 
-    if(imp_part == NULL) {
-    	printf(" partition_from_set -- error allocating memory: int* imp_part\n");
-    	exit(-1);
-    }
-    	
+    int* imp_part = (int *)xmalloc(sizeof(int)*pi_list->size); 
+
     //third - receive 
     for(int i=0; i<pi_list->ranks_size; i++) {
     	//printf("import from %d to rank %d set %s of size %d\n",
@@ -257,11 +351,7 @@ int partition_from_set(op_map map, int my_rank, int comm_size, int** part_range)
     
     //allocate memory to hold the partition details for the set thats going to be 
     //partitioned 
-    int* partition = (int *)malloc(sizeof(int)*map->from->size);
-    if(partition == NULL) {
-    	printf(" partition_from_set -- error allocating memory: int* partition\n");
-    	exit(-1);
-    }
+    int* partition = (int *)xmalloc(sizeof(int)*map->from->size);
    
     //go through the mapping table and the imported partition information and
     //partition the "from" set
@@ -321,8 +411,183 @@ int partition_from_set(op_map map, int my_rank, int comm_size, int** part_range)
 /** ---- use the partitioned map->from set to partition the map->to set -------**/
 int partition_to_set(op_map map, int my_rank, int comm_size, int** part_range)
 {
-    //OP_part_info_list[map->to->index]->part = partition;
+    part p_set = OP_part_list[map->from->index];
+    
+    int cap = 300; int count = 0; 
+    int* temp_list = (int *)xmalloc(cap*sizeof(int));
+
+    set_halo_list pe_list = (set_halo_list) xmalloc(sizeof(set_halo_list_core));
+    int* part_list_e = NULL; //corresponding "to" element's partition infomation exported to an mpi rank
+        
+    //go through the map and if any element pointed to by a mapping table entry
+    //(i.e. a "from" set element) is in a foreign partition, add the partition
+    // of the from element to be exported to that mpi foreign process
+    //also collect information about the local "to" elements
+    for(int i = 0; i < map->from->size; i++)
+    {
+    	int part;
+    	int local_index;
+    	
+    	for(int j=0; j < map->dim; j++)
+    	{
+    	    part = get_partition(map->map[i*map->dim+j],
+    	    	part_range[map->to->index],&local_index,comm_size);
+    	    
+    	    if(part != my_rank)
+    	    {
+    	    	if(count>=cap)
+    	    	{
+    	    	    cap = cap*3;
+    	    	    temp_list = (int *)xrealloc(temp_list,cap*sizeof(int));
+    	    	}
+    	    	
+    	    	temp_list[count++] = part; //curent partition (i.e. mpi rank)
+    	    	temp_list[count++] = map->map[i*map->dim+j];//global index
+    	    	temp_list[count++] = p_set->elem_part[i]; //new partition  	    	
+    	    }
+    	}
+    }
+    
+    part_list_e = create_exp_list_2(map->to,temp_list, pe_list, part_list_e, 
+    	count, comm_size, my_rank);
+    free(temp_list);
+    
+    /*for(int i=0; i < pe_list->ranks_size; i++) {
+        for(int j = 0; j<pe_list->sizes[i]; j++)
+        {
+            printf(" %d",part_list_e[pe_list->disps[i]]);         	   
+        }
+        printf("\n");
+    }*/
+    
+    int ranks_size = 0;
+    int* neighbors = (int *)xmalloc(comm_size*sizeof(int));
+    int* sizes = (int *)xmalloc(comm_size*sizeof(int));
+    
+    //to_part_list tpi_list;
+    set_halo_list pi_list = (set_halo_list) xmalloc(sizeof(set_halo_list_core));
+    int* part_list_i = NULL; //corresponding "to" element's partition infomation imported from an mpi rank
+    
+    find_neighbors_set(pe_list,neighbors,sizes,&ranks_size,my_rank,comm_size, OP_PART_WORLD);
+    
+    MPI_Request request_send_t[pe_list->ranks_size];
+    MPI_Request request_send_p[pe_list->ranks_size];
+    int *rbuf_t, *rbuf_p; 
+    cap = 0; count = 0;
+    
+    for(int i=0; i < pe_list->ranks_size; i++) {
+    	int* sbuf_t = &pe_list->list[pe_list->disps[i]];
+    	int* sbuf_p = &part_list_e[pe_list->disps[i]];
+    	MPI_Isend( sbuf_t,  pe_list->sizes[i],  MPI_INT, pe_list->ranks[i], 1,
+    	    OP_PART_WORLD, &request_send_t[i] );
+    	MPI_Isend( sbuf_p,  pe_list->sizes[i],  MPI_INT, pe_list->ranks[i], 2,
+    	    OP_PART_WORLD, &request_send_p[i] );
+    }
+    
+    for(int i=0; i< ranks_size; i++) cap = cap + sizes[i];
+    int* temp_list_t = (int *)xmalloc(cap*sizeof(int));
+    part_list_i = (int *)xmalloc(cap*sizeof(int));
+    
+    for(int i=0; i<ranks_size; i++) {
+    	rbuf_t = (int *)xmalloc(sizes[i]*sizeof(int));
+    	rbuf_p = (int *)xmalloc(sizes[i]*sizeof(int));
+    	
+    	MPI_Recv(rbuf_t, sizes[i], MPI_INT, neighbors[i], 1, OP_PART_WORLD,
+    	    MPI_STATUSES_IGNORE );
+    	MPI_Recv(rbuf_p, sizes[i], MPI_INT, neighbors[i], 2, OP_PART_WORLD,
+    	    MPI_STATUSES_IGNORE );
+    	memcpy(&temp_list_t[count],(void *)&rbuf_t[0],sizes[i]*sizeof(int));    	
+    	memcpy(&part_list_i[count],(void *)&rbuf_p[0],sizes[i]*sizeof(int));
+    	count = count + sizes[i];
+    	free(rbuf_t);
+    	free(rbuf_p);
+    }
+    MPI_Waitall(pe_list->ranks_size,request_send_t, MPI_STATUSES_IGNORE );
+    MPI_Waitall(pe_list->ranks_size,request_send_p, MPI_STATUSES_IGNORE );
+    
+    create_imp_list_2(map->to, temp_list_t, pi_list, count,
+    	neighbors, sizes, ranks_size, comm_size, my_rank);
+    
+    
+    //-----go through local mapping table as well as the imported information
+    //and partition the "to" set
+    cap = map->to->size;
+    count = 0;
+    int *to_elems = (int *)xmalloc(sizeof(int)*cap);
+    int *parts = (int *)xmalloc(sizeof(int)*cap);
+    
+    //--first the local mapping table
+    int local_index;
+    int part;
+    for(int i = 0; i < map->from->size; i++)
+    {
+    	for(int j=0; j < map->dim; j++)
+    	{
+    	    part = get_partition(map->map[i*map->dim+j], part_range[map->to->index],
+    	    	&local_index,comm_size);
+    	    if(part == my_rank)
+    	    {
+    	    	if(count>=cap)
+    	    	{
+    	    	    cap = cap*2;
+    	    	    parts = (int *)xrealloc(parts,sizeof(int)*cap);
+    	    	    to_elems = (int *)xrealloc(to_elems,sizeof(int)*cap);
+    	    	}
+    	    	to_elems[count] = local_index;
+    	    	parts[count++] = p_set->elem_part[i];
+    	    }    	    
+    	}
+    }
+    
+    //copy pi_list.list and part_list_i to to_elems and parts
+    to_elems = (int *)xrealloc(to_elems, sizeof(int)*(count+pi_list->size));
+    parts = (int *)xrealloc(parts, sizeof(int)*(count+pi_list->size));
+    
+    memcpy(&to_elems[count],(void *)&pi_list->list[0],pi_list->size*sizeof(int));
+    memcpy(&parts[count],(void *)&part_list_i[0],pi_list->size*sizeof(int));
+    
+    int *partition = (int *)xmalloc(sizeof(int)*map->to->size);
+    for(int i = 0; i < map->to->size; i++){partition[i] = -99;}
+    
+    //sort both to_elems[] and correspondingly parts[] arrays
+    quickSort_2(to_elems, parts, 0, count-1);
+    
+    int* found_parts;
+    for(int i = 0; i<count;)
+    {
+    	int curr = to_elems[i];
+    	int c = 0; int cap = map->dim;
+    	found_parts = (int *)xmalloc(sizeof(int)*cap);
+    
+    	while(curr == to_elems[i])
+    	{
+    	  if(c>=cap) 
+    	  {
+    	      cap = cap*2;
+    	      found_parts = (int *)xrealloc(found_parts, sizeof(int)*cap);   
+    	  }
+    	  found_parts[c++] =  parts[i];
+    	  i++;
+    	}    	
+	partition[curr] = find_mode(found_parts, c);
+	free(found_parts);
+    }  
+
+    free(to_elems);free(parts);
+    
+    //check if this "from" set is an "on to" set 
+    for(int i = 0; i < map->to->size; i++) if(partition[i]<0)  return -1;
+ 
+    OP_part_list[map->to->index]->elem_part = partition;
     OP_part_list[map->to->index]->is_partitioned = 1;
+    
+    //cleanup 
+    free(pi_list->list);free(pi_list->ranks);free(pi_list->sizes);
+    free(pi_list->disps);
+    free(pe_list->list);free(pe_list->ranks);free(pe_list->sizes);
+    free(pe_list->disps);    
+    free(part_list_i);free(part_list_e);
+    
     return 1;
 }
 
@@ -335,11 +600,7 @@ void partition_all(op_set primary_set, int my_rank, int comm_size)
 /*--STEP 1 - Partition Secondary sets using primary set partition ------------*/
     
     // Compute global partition range information for each set
-    int** part_range = (int **)malloc(OP_set_index*sizeof(int*));
-    if(part_range == NULL) {
-    	printf(" partition_all -- error allocating memory: int** part_range\n");
-    	exit(-1);
-    }
+    int** part_range = (int **)xmalloc(OP_set_index*sizeof(int*));
     get_part_range(part_range,my_rank,comm_size, OP_PART_WORLD);
 
     int sets_partitioned = 1;
@@ -459,11 +720,7 @@ void partition_all(op_set primary_set, int my_rank, int comm_size)
     	//create a temporaty scratch space to hold export list for this set's 
     	//partition information
     	count = 0;cap = 1000;
-    	temp_list = malloc(cap*sizeof(int));
-    	if(temp_list == NULL) {
-    	    printf(" partition_all -- error allocating memory: int* temp_list\n");
-    	    exit(-1);
-    	}
+    	temp_list = (int *)xmalloc(cap*sizeof(int));
     
     	for(int i = 0; i < set->size; i++)
     	{
@@ -472,18 +729,14 @@ void partition_all(op_set primary_set, int my_rank, int comm_size)
     	    	if(count>=cap)
     	    	{
     	    	    cap = cap*2;
-    	    	    temp_list = realloc(temp_list, cap*sizeof(int));
-    	    	    if(temp_list == NULL) {
-    	    	    	printf(" partition_all -- error reallocating memory: int* temp_list\n");
-    	    	    	exit(-1);
-    	    	    }
+    	    	    temp_list = (int *)xrealloc(temp_list, cap*sizeof(int));
     	    	}
     	    	temp_list[count++] = p->elem_part[i];
     	    	temp_list[count++] = i;//part.g_index[i];      	      
     	    }
     	}
     	//create partition info export list
-    	pe_list[set->index] = (set_halo_list) malloc(sizeof(set_halo_list_core));
+    	pe_list[set->index] = (set_halo_list) xmalloc(sizeof(set_halo_list_core));
     	create_exp_list(set, temp_list, pe_list[set->index], count, comm_size, my_rank);
     	free(temp_list);      
     }
@@ -501,16 +754,8 @@ void partition_all(op_set primary_set, int my_rank, int comm_size)
       
     	//-----Discover neighbors-----
     	ranks_size = 0;
-    	neighbors = malloc(comm_size*sizeof(int));
-    	if(neighbors == NULL) {
-    	    printf(" partition_all -- error allocating memory: int* neighbors\n");
-    	    exit(-1);
-    	}
-    	sizes = malloc(comm_size*sizeof(int));
-    	if(sizes == NULL) {
-    	    printf(" partition_all -- error allocating memory: int* sizes\n");
-    	    exit(-1);
-    	}
+    	neighbors = (int *)xmalloc(comm_size*sizeof(int));
+    	sizes = (int *)xmalloc(comm_size*sizeof(int));
       
 	find_neighbors_set(exp, neighbors, sizes, &ranks_size, 
 	    my_rank, comm_size, OP_PART_WORLD);	
@@ -528,16 +773,12 @@ void partition_all(op_set primary_set, int my_rank, int comm_size)
     	}
       
     	for(int i=0; i< ranks_size; i++) cap = cap + sizes[i];
-    	temp_list = malloc(cap*sizeof(int));
-    	if(temp_list == NULL) {
-    	    printf(" partition_all -- error allocating memory: int* temp_list\n");
-    	    exit(-1);
-    	}
+    	temp_list = (int *)xmalloc(cap*sizeof(int));
       
     	for(int i=0; i<ranks_size; i++) {
     	    //printf("import from %d to %d set %10s, list of size %d\n",
     	    //neighbors[i], my_rank, set->name, sizes[i]);
-    	    rbuf = malloc(sizes[i]*sizeof(int));
+    	    rbuf = (int *)xmalloc(sizes[i]*sizeof(int));
     	    
     	    MPI_Recv(rbuf, sizes[i], MPI_INT, neighbors[i], 1, OP_PART_WORLD,
     	    	MPI_STATUSES_IGNORE );
@@ -547,7 +788,7 @@ void partition_all(op_set primary_set, int my_rank, int comm_size)
     	}
       
     	MPI_Waitall(exp->ranks_size,request_send, MPI_STATUSES_IGNORE );
-    	pi_list[set->index] = (set_halo_list) malloc(sizeof(set_halo_list_core));
+    	pi_list[set->index] = (set_halo_list) xmalloc(sizeof(set_halo_list_core));
     	create_imp_list(set, temp_list, pi_list[set->index], count,
     	    neighbors, sizes, ranks_size, comm_size, my_rank);
     }
@@ -572,19 +813,10 @@ void partition_all(op_set primary_set, int my_rank, int comm_size)
     	    {
     	    	
     	    	//prepare bits of the data array to be exported
-    	    	char** sbuf = malloc(exp->ranks_size*sizeof(char *));
-    	    	if(sbuf == NULL) {
-    	    	    printf(" partition_all -- error allocating memory: char** sbuf\n");
-    	    	    exit(-1);
-    	    	}
+    	    	char** sbuf = (char **)xmalloc(exp->ranks_size*sizeof(char *));
     	
     	    	for(int i=0; i < exp->ranks_size; i++) {
-    	    	    sbuf[i] = malloc(exp->sizes[i]*dat->size);
-    	    	    if(sbuf[i] == NULL) {
-    	    	    	printf(" partition_all -- error allocating memory: sbuf[i]\n");
-    	    	    	exit(-1);
-    	    	    }
-    	    	
+    	    	    sbuf[i] = (char *)xmalloc(exp->sizes[i]*dat->size);
     	    	    for(int j = 0; j<exp->sizes[i]; j++)
     	    	    {
     	    	    	int index = exp->list[exp->disps[i]+j];
@@ -597,12 +829,7 @@ void partition_all(op_set primary_set, int my_rank, int comm_size)
     	    	    	d, OP_PART_WORLD, &request_send[i]);
     	    	}
       	      
-    	    	char *rbuf = malloc(dat->size*imp->size);
-    	    	if(rbuf == NULL) {
-    	    	    	printf(" partition_all -- error allocating memory: rbuf\n");
-    	    	    	exit(-1);
-    	    	}
-    	    	
+    	    	char *rbuf = (char *)xmalloc(dat->size*imp->size);
     	    	for(int i=0; i<imp->ranks_size; i++) {
     	    	    //printf("imported on to %d data %10s, number of elements of size %d | recieving:\n ",
     	    	    //	  my_rank, dat->name, imp->size);
@@ -615,11 +842,7 @@ void partition_all(op_set primary_set, int my_rank, int comm_size)
       	      
     	    	//delete the data entirs that has been sent and create a 
     	    	//modified data array
-    	    	char* new_dat = malloc(dat->size*(set->size+imp->size));
-    	    	if(new_dat == NULL) {
-    	    	    	printf(" partition_all -- error allocating memory: char* new_dat\n");
-    	    	    	exit(-1);
-    	    	}
+    	    	char* new_dat = (char *)xmalloc(dat->size*(set->size+imp->size));
     	    	
     	    	int count = 0;
     	    	for(int i = 0; i < dat->set->size;i++)//iterate over old set size
@@ -634,12 +857,7 @@ void partition_all(op_set primary_set, int my_rank, int comm_size)
 
     	    	memcpy(&new_dat[count*dat->size],(void *)rbuf,dat->size*imp->size);
     	    	count = count+imp->size;
-    	    	new_dat = realloc(new_dat,dat->size*count);
-    	    	if(new_dat == NULL & count != 0) {
-    	    	    	printf(" partition_all -- error reallocating memory: char* new_dat\n");
-    	    	    	exit(-1);
-    	    	}
-    	    	
+    	    	new_dat = (char *)xrealloc(new_dat,dat->size*count);
     	    	free(rbuf);
       	           	      
     	    	free(OP_dat_list[dat->index]->data);   	  
@@ -664,18 +882,14 @@ void partition_all(op_set primary_set, int my_rank, int comm_size)
     	    if(compare_sets(map->from,set)==1) //need to select mappings FROM this set
     	    {
     	    	//prepare bits of the mapping tables to be exported
-    	    	int** sbuf = (int **)malloc(exp->ranks_size*sizeof(int *));
+    	    	int** sbuf = (int **)xmalloc(exp->ranks_size*sizeof(int *));
     	    	if(sbuf == NULL) {
     	    	    printf(" partition_all -- error allocating memory: int** sbuf\n");
     	    	    exit(-1);
     	    	}
     	    	//send mapping table entirs to relevant mpi processes
     	    	for(int i=0; i<exp->ranks_size; i++) {
-    	    	    sbuf[i] = malloc(exp->sizes[i]*map->dim*sizeof(int));
-    	    	    if(sbuf[i] == NULL) {
-    	    	    	printf(" partition_all -- error allocating memory: sbuf[i]\n");
-    	    	    	exit(-1);
-    	    	    }
+    	    	    sbuf[i] = (int *)xmalloc(exp->sizes[i]*map->dim*sizeof(int));
     	    	    for(int j = 0; j<exp->sizes[i]; j++)
     	    	    {
     	    	    	for(int p = 0; p< map->dim; p++)
@@ -690,11 +904,7 @@ void partition_all(op_set primary_set, int my_rank, int comm_size)
     	    	    	m, OP_PART_WORLD, &request_send[i]);
     	    	}
       	      
-    	    	int *rbuf = malloc(map->dim*sizeof(int)*imp->size);
-    	    	if(rbuf == NULL) {
-    	    	    printf(" partition_all -- error allocating memory: int *rbuf \n");
-    	    	    exit(-1);
-    	    	}
+    	    	int *rbuf = (int *)xmalloc(map->dim*sizeof(int)*imp->size);
       	      
     	    	//receive mapping table entirs from relevant mpi processes
     	    	for(int i=0; i < imp->ranks_size; i++) {
@@ -709,12 +919,8 @@ void partition_all(op_set primary_set, int my_rank, int comm_size)
       	      
     	    	//delete the mapping table entirs that has been sent and create a 
     	    	//modified mapping table
-    	    	int* new_map = malloc(sizeof(int)*(set->size+imp->size)*map->dim);
-    	    	if(new_map == NULL) {
-    	    	    printf(" partition_all -- error allocating memory: int* new_map \n");
-    	    	    exit(-1);
-    	    	}
-    	    	
+    	    	int* new_map = (int *)xmalloc(sizeof(int)*(set->size+imp->size)*map->dim);
+
     	    	int count = 0;
     	    	for(int i = 0; i < map->from->size;i++)//iterate over old size of the maping table
     	    	{
@@ -727,11 +933,7 @@ void partition_all(op_set primary_set, int my_rank, int comm_size)
     	    	}
     	    	memcpy(&new_map[count*map->dim],(void *)rbuf,map->dim*sizeof(int)*imp->size);
     	    	count = count+imp->size;
-    	    	new_map = realloc(new_map,sizeof(int)*count*map->dim);
-    	    	if(new_map == NULL && count !=0) {
-    	    	    printf(" partition_all -- error reallocating memory: int* new_map \n");
-    	    	    exit(-1);
-    	    	}
+    	    	new_map = (int *)xrealloc(new_map,sizeof(int)*count*map->dim);
     	    	
     	    	free(rbuf);
     	    	free(OP_map_list[map->index]->map);
@@ -749,11 +951,7 @@ void partition_all(op_set primary_set, int my_rank, int comm_size)
     	part p = OP_part_list[set->index];
     	set_halo_list imp = pi_list[set->index];
       
-    	int* new_g_index = malloc(sizeof(int)*(set->size+imp->size));
-    	if(new_g_index == NULL ) {
-    	    printf(" partition_all -- error allocating memory: int* new_g_index\n");
-    	    exit(-1);
-    	}
+    	int* new_g_index = (int *)xmalloc(sizeof(int)*(set->size+imp->size));
       
     	int count = 0;
     	for(int i = 0; i < set->size;i++)
@@ -775,17 +973,8 @@ void partition_all(op_set primary_set, int my_rank, int comm_size)
     	    }
     	}
       
-    	new_g_index = realloc(new_g_index,sizeof(int)*count);
-    	if(new_g_index == NULL && count != 0) {
-    	    printf(" partition_all -- error reallocating memory: int* new_g_index\n");
-    	    exit(-1);
-    	}
-    	
-    	int* new_part = malloc(sizeof(int)*count);
-    	if(new_part == NULL) {
-    	    printf(" partition_all -- error allocating memory: int* new_part\n");
-    	    exit(-1);
-    	}
+    	new_g_index = (int *)xrealloc(new_g_index,sizeof(int)*count);
+    	int* new_part = (int *)xmalloc(sizeof(int)*count);
     	for(int i = 0; i< count; i++)new_part[i] = my_rank;
       
     	free(OP_part_list[set->index]->elem_part);
@@ -828,11 +1017,7 @@ void partition_all(op_set primary_set, int my_rank, int comm_size)
     	    {
     	    	if(set->size > 0)
     	    	{
-    	    	    int* temp = malloc(sizeof(int)*set->size);
-    	    	    if(temp == NULL ) {
-    	    	    	printf(" partition_all -- error allocating memory: int* temp\n");
-    	    	    	exit(-1);
-    	    	    }
+    	    	    int* temp = (int *)xmalloc(sizeof(int)*set->size);
     	    	    memcpy(temp, (void *)OP_part_list[set->index]->g_index, 
     	    	    	sizeof(int)*set->size);
     	    	    quickSort_dat(temp,OP_dat_list[dat->index]->data, 0, 
@@ -850,11 +1035,7 @@ void partition_all(op_set primary_set, int my_rank, int comm_size)
     	    {
     	    	if(set->size > 0)
     	    	{
-    	    	    int* temp = malloc(sizeof(int)*set->size);
-    	    	    if(temp == NULL ) {
-    	    	    	printf(" partition_all -- error allocating memory: int* temp\n");
-    	    	    	exit(-1);
-    	    	    }
+    	    	    int* temp = (int *)xmalloc(sizeof(int)*set->size);
     	    	    memcpy(temp, (void *)OP_part_list[set->index]->g_index, 
     	    	    	sizeof(int)*set->size);
     	    	    quickSort_map(temp,OP_map_list[map->index]->map, 0, 
@@ -871,11 +1052,11 @@ void partition_all(op_set primary_set, int my_rank, int comm_size)
 /*--STEP 5 - Save old Partitioning Information -------------------------------*/
 	     
     //allocate memory for old list
-    OP_part_list_original = (part *)malloc(OP_set_index*sizeof(part));
+    OP_part_list_original = (part *)xmalloc(OP_set_index*sizeof(part));
     for(int s=0; s<OP_set_index; s++) { //for each set
     	op_set set=OP_set_list[s];
     	
-    	part p = (part) malloc(sizeof(part_core));
+    	part p = (part) xmalloc(sizeof(part_core));
     	p->g_index = OP_part_list[set->index]->g_index;
     	    	
     	OP_part_list_original[set->index] = p;    	
@@ -893,12 +1074,8 @@ void partition_all(op_set primary_set, int my_rank, int comm_size)
     	op_map map=OP_map_list[m];
       	  
       	int cap = 1000; int count = 0;
-      	int* req_list = malloc(cap*sizeof(int));
-      	if(req_list == NULL ) {
-      	    printf(" partition_all -- error allocating memory: int* req_list\n");
-      	    exit(-1);
-      	}
-    	    	    
+      	int* req_list = (int *)xmalloc(cap*sizeof(int));
+   	    	    
       	for(int i = 0; i< map->from->size; i++)
       	{
       	    int local_index;//, global_index;
@@ -910,11 +1087,7 @@ void partition_all(op_set primary_set, int my_rank, int comm_size)
       	    	if(count>=cap)
       	    	{
       	      	    cap = cap*2;
-      	      	    req_list = realloc(req_list, cap*sizeof(int));
-      	      	    if(req_list == NULL ) {
-      	      	    	printf(" partition_all -- error reallocating memory: int* req_list\n");
-      	      	    	exit(-1);
-      	      	    }
+      	      	    req_list = (int *)xrealloc(req_list, cap*sizeof(int));
       	      	}
       	      	  
       	      	if(local_index < 0) // not in this partition
@@ -927,14 +1100,10 @@ void partition_all(op_set primary_set, int my_rank, int comm_size)
       	//sort and remove duplicates
       	if(count > 0)
       	{
-      	    //***point to check**//
+
       	    quickSort(req_list, 0, count-1);
       	    count = removeDups(req_list, count);
-      	    req_list = realloc(req_list, count*sizeof(int));
-      	    if(req_list == NULL && count != 0) {
-      	    	printf(" partition_all -- error reallocating memory: int* req_list\n");
-      	    	exit(-1);
-      	    }
+      	    req_list = (int *)xrealloc(req_list, count*sizeof(int));
       	}
       	  
       	//do an allgather to findout how many elements that each process will 
@@ -948,12 +1117,7 @@ void partition_all(op_set primary_set, int my_rank, int comm_size)
       	  
       	//prepare for an allgatherv
       	int disp = 0;
-      	int* displs = (int *)malloc(comm_size*sizeof(int));
-      	if(displs == NULL) {
-      	    printf(" partition_all -- error allocating memory: int* displs\n");
-      	    exit(-1);
-      	}
-      	    
+      	int* displs = (int *)xmalloc(comm_size*sizeof(int));
       	for(int i = 0; i<comm_size; i++)
       	{
       	    displs[i] =   disp;
@@ -961,11 +1125,7 @@ void partition_all(op_set primary_set, int my_rank, int comm_size)
       	}
       	  
       	//allocate memory to hold the global indexes of elements requiring partition details
-      	int *g_index = (int *)malloc(sizeof(int)*g_count);
-      	if(g_index == NULL) {
-      	    printf(" partition_all -- error allocating memory: int *g_index\n");
-      	    exit(-1);
-      	}
+      	int *g_index = (int *)xmalloc(sizeof(int)*g_count);
       	  
       	MPI_Allgatherv(req_list,count,MPI_INT, g_index,recv_count,displs,
       	    MPI_INT, OP_PART_WORLD);
@@ -975,7 +1135,7 @@ void partition_all(op_set primary_set, int my_rank, int comm_size)
       	{
       	    quickSort(g_index, 0, g_count-1);
       	    g_count = removeDups(g_index, g_count);
-      	    g_index = realloc(g_index, g_count*sizeof(int));
+      	    g_index = (int *)xrealloc(g_index, g_count*sizeof(int));
       	}
       	  
       	//printf("on rank %d map %s needs set %s : before g_count = %d\n", 
@@ -983,18 +1143,9 @@ void partition_all(op_set primary_set, int my_rank, int comm_size)
       	  
       	//go through the recieved global g_index array and see if any local element's
       	//partition details are requested by some foreign process
-      	int *exp_index = (int *)malloc(sizeof(int)*g_count);
-      	if(exp_index == NULL) {
-      	    printf(" partition_all -- error allocating memory: int *exp_index\n");
-      	    exit(-1);
-      	}
-      	
-      	int *exp_g_index = (int *)malloc(sizeof(int)*g_count);
-      	if(exp_g_index == NULL) {
-      	    printf(" partition_all -- error allocating memory: int *exp_g_index\n");
-      	    exit(-1);
-      	}
-      	
+      	int *exp_index = (int *)xmalloc(sizeof(int)*g_count);
+      	int *exp_g_index = (int *)xmalloc(sizeof(int)*g_count);
+
       	int exp_count = 0;
       	for(int i = 0; i<g_count; i++)
       	{
@@ -1013,25 +1164,14 @@ void partition_all(op_set primary_set, int my_rank, int comm_size)
       	free(g_index);
       	
       	//realloc exp_index, exp_g_index
-      	exp_index = (int *)realloc(exp_index,sizeof(int)*exp_count);
-      	if(exp_index == NULL && exp_count != 0) {
-      	    printf(" partition_all -- error reallocating memory: int *exp_index\n");
-      	    exit(-1);
-      	}
-      	exp_g_index = (int *)realloc(exp_g_index,sizeof(int)*exp_count);
-      	if(exp_g_index == NULL && exp_count != 0) {
-      	    printf(" partition_all -- error reallocating memory: int *exp_g_index\n");
-      	    exit(-1);
-      	}
+      	exp_index = (int *)xrealloc(exp_index,sizeof(int)*exp_count);
+      	exp_g_index = (int *)xrealloc(exp_g_index,sizeof(int)*exp_count);
       	
       	//now export to every one these partition info with an all-to-all
       	MPI_Allgather(&exp_count, 1, MPI_INT, recv_count, 1, MPI_INT, OP_PART_WORLD);
       	disp = 0; free(displs);
-      	displs = (int *)malloc(comm_size*sizeof(int));
-      	if(displs == NULL ) {
-      	    printf(" partition_all -- error allocating memory: int *displs\n");
-      	    exit(-1);
-      	}
+      	displs = (int *)xmalloc(comm_size*sizeof(int));
+
       	
       	for(int i = 0; i<comm_size; i++)
       	{
@@ -1042,17 +1182,8 @@ void partition_all(op_set primary_set, int my_rank, int comm_size)
       	//allocate memory to hold the incomming partition details and allgatherv  
       	g_count = 0;
       	for(int i = 0; i< comm_size; i++)g_count += recv_count[i];
-      	int *all_imp_index = (int *)malloc(sizeof(int)*g_count);
-      	if(all_imp_index == NULL ) {
-      	    printf(" partition_all -- error allocating memory: int *all_imp_index\n");
-      	    exit(-1);
-      	}
-      	
-      	g_index = malloc(sizeof(int)*g_count);
-      	if(g_index == NULL ) {
-      	    printf(" partition_all -- error allocating memory: int *g_index\n");
-      	    exit(-1);
-      	}
+      	int *all_imp_index = (int *)xmalloc(sizeof(int)*g_count);
+      	g_index = (int *)xmalloc(sizeof(int)*g_count);
       	  
       	//printf("on rank %d map %s need set %s: After g_count = %d\n", 
       	//    my_rank, map.name,map.to.name,g_count);
@@ -1119,11 +1250,11 @@ void partition_all(op_set primary_set, int my_rank, int comm_size)
     for(int i = 0; i<OP_set_index; i++)free(part_range[i]);free(part_range);
 }
 
-    
+
 
 
 /**------------Partition A Primary Set Using XYZ Geometry Data---------------**/
-void op_partition_geom(op_dat coords, int g_nnode)
+void op_partition_geom(op_dat coords, int g_nnode) //uses ParMETIS_V3_PartGeom()
 {
     //declare timers
     double cpu_t1, cpu_t2, wall_t1, wall_t2;
@@ -1142,25 +1273,16 @@ void op_partition_geom(op_dat coords, int g_nnode)
     partitioning information */
     
     // Compute global partition range information for each set
-    int** part_range = (int **)malloc(OP_set_index*sizeof(int*));
-    if(part_range == NULL) {
-    	printf(" op_partition_geom -- error allocating memory: int** part_range\n");
-    	exit(-1);
-    }
+    int** part_range = (int **)xmalloc(OP_set_index*sizeof(int*));
     get_part_range(part_range,my_rank,comm_size, OP_PART_WORLD);
     
     //allocate memory for list
-    OP_part_list = (part *)malloc(OP_set_index*sizeof(part));
+    OP_part_list = (part *)xmalloc(OP_set_index*sizeof(part));
     
     for(int s=0; s<OP_set_index; s++) { //for each set
       op_set set=OP_set_list[s];
       //printf("set %s size = %d\n", set.name, set.size);
-      int *g_index = (int *)malloc(sizeof(int)*set->size);
-      if(g_index == NULL) {
-      	  printf(" op_partition_geom -- error allocating memory: int *g_index\n");
-      	  exit(-1);
-      }
-      
+      int *g_index = (int *)xmalloc(sizeof(int)*set->size);
       for(int i = 0; i< set->size; i++)
       	  g_index[i] = get_global_index(i,my_rank, part_range[set->index],comm_size);      
       decl_partition(set, g_index, NULL); 
@@ -1169,18 +1291,9 @@ void op_partition_geom(op_dat coords, int g_nnode)
 /*--STEP 1 - Partition Nodes (primary set) using Coordinates (1D,2D or 3D)----*/
 
     //Setup data structures for ParMetis PartGeom
-    idxtype *vtxdist = (idxtype *)malloc(sizeof(idxtype)*(comm_size+1));
-    if(vtxdist == NULL) {
-      	  printf(" op_partition_geom -- error allocating memory: idxtype *vtxdist\n");
-      	  exit(-1);
-    }
-      
-    idxtype *partition = (idxtype *)malloc(sizeof(idxtype)*coords->set->size);
-    if(partition == NULL) {
-      	  printf(" op_partition_geom -- error allocating memory: idxtype *partition\n");
-      	  exit(-1);
-    }
-    
+    idxtype *vtxdist = (idxtype *)xmalloc(sizeof(idxtype)*(comm_size+1));
+    idxtype *partition = (idxtype *)xmalloc(sizeof(idxtype)*coords->set->size);
+   
     int ndims = coords->dim;
     float* xyz;
     
@@ -1188,11 +1301,7 @@ void op_partition_geom(op_dat coords, int g_nnode)
     //- i.e. coordinates should be floats
     if(ndims == 3 || ndims == 2 || ndims == 1)
     {
-    	xyz = (float* )malloc(coords->set->size*coords->dim*sizeof(float));
-    	if(xyz == NULL) {
-    	    printf(" op_partition_geom -- error allocating memory: float* xyz\n");
-    	    exit(-1);
-      	}
+    	xyz = (float* )xmalloc(coords->set->size*coords->dim*sizeof(float));
     	size_t mult = coords->size/coords->dim;
     	for(int i = 0;i < coords->set->size;i++)
     	{
@@ -1240,6 +1349,18 @@ void op_partition_geom(op_dat coords, int g_nnode)
     MPI_Comm_free(&OP_PART_WORLD);  
     if(my_rank==0)printf("Max total geometric partitioning time = %lf\n",max_time);    
 }
+
+
+/**------------ Partition Using ParMETIS PartKway() routine --------------**/
+void op_partition_kway(op_map primary_map){}
+
+
+/**------------ Partition Using ParMETIS PartGeomKway() routine --------------**/
+void op_partition_geomkway(op_dat coords, int g_nnode, op_map primary_map){}
+
+
+//revert back to the original partitioning 
+void op_partition_reverse(){}
 
 
 //destroy OP_part_list[]    

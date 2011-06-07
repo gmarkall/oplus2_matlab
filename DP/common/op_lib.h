@@ -214,6 +214,15 @@ extern "C"
 void op_partition_geom(op_dat coords, int g_nnode);
 
 extern "C"
+void op_partition_kway(op_map primary_map);
+
+extern "C"
+void op_partition_geomkway(op_dat coords, int g_nnode, op_map primary_map);
+
+extern "C"
+void op_partition_reverse();
+
+extern "C"
 void op_partition_destroy();
 
 

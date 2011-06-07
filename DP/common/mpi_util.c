@@ -35,6 +35,24 @@
 
 /*-------------------------------Util functions-------------------------------*/
 
+//from www.gnu.org/
+void* xmalloc (size_t size)
+{
+    register void *value = malloc (size);
+    if (value == 0) printf("Virtual memory exhausted at malloc\n");
+    return value;
+}
+
+void* xrealloc (void *ptr, size_t size)
+{
+    if(size == 0) return (void *)NULL;
+    
+    register void *value = realloc (ptr, size);
+    if (value == 0) printf ("Virtual memory exhausted at realloc\n");
+    return value;
+}
+
+
 int compare_sets(op_set set1, op_set set2)
 {
     if(set1->size == set2->size &
@@ -142,11 +160,7 @@ void quickSort_dat(int arr[], char dat[], int left, int right, int elem_size)
 {
     int i = left, j = right;
     int tmp; 
-    char* tmp_dat = malloc(sizeof(char)*elem_size);
-    if(tmp_dat == NULL ) {
-    	printf(" quickSort_dat -- error allocating memory: char* tmp_dat\n");
-    	exit(-1);
-    }
+    char* tmp_dat = (char *)xmalloc(sizeof(char)*elem_size);
     int pivot = arr[(left + right) / 2];
     
     // partition
@@ -180,12 +194,7 @@ void quickSort_map(int arr[], int map[], int left, int right, int dim)
 {
     int i = left, j = right;
     int tmp; 
-    int* tmp_map = malloc(sizeof(int)*dim);
-    if(tmp_map == NULL ) {
-    	printf(" quickSort_map -- error allocating memory: int* tmp_map\n");
-    	exit(-1);
-    }
-    
+    int* tmp_map = (int *)xmalloc(sizeof(int)*dim);
     int pivot = arr[(left + right) / 2];
     
     // partition
