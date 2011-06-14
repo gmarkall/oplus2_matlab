@@ -100,16 +100,6 @@ extern op_kernel *OP_kernels;
 //
 // external variables for mpi declared in op_mpi_core.c
 //
-extern int OP_exp_maps_index;  //number of mapping table halo lists (export)
-extern int OP_exp_exset_index; //number of halo lists with execute set elements (export) 
-
-extern int OP_imp_maps_index; //number of mapping table halo lists (import)
-extern int OP_imp_exset_index; //number halo lists with execute set elements (import) 
-
-extern int OP_imp_nxset_index; //number halo lists with non-execute set elements (import) 
-extern int OP_exp_nxset_index; //number halo lists with non-execute set elements (export) 
-
-
 
 extern map_halo_list* OP_export_maps_list; 
 extern set_halo_list* OP_export_sets_list; 
@@ -120,8 +110,7 @@ extern set_halo_list* OP_import_sets_list;
 extern set_halo_list* OP_import_nonexec_sets_list;
 extern set_halo_list* OP_export_nonexec_sets_list;  
 
-extern int* dirtybit;
-
+extern int* owned_num;
 
 
 //
@@ -195,7 +184,10 @@ extern "C"
 void op_halo_destroy();
 
 extern "C" 
-void exchange_halo(op_set set, op_arg arg);
+int exchange_halo(op_set set, op_arg arg);
+
+extern "C"
+void wait_all(op_set set, op_arg arg);
 
 extern "C"
 void set_dirtybit(op_arg arg);
@@ -205,6 +197,9 @@ void global_reduce(op_arg* arg);
 
 extern "C"
 void op_mpi_timing_output(int my_rank);
+
+extern "C"
+void gatherprint_tofile(op_dat dat, int rank, int comm_size, int g_size);
 
 
 //

@@ -3,7 +3,7 @@ MPI_HOME	:= /home/gihan/openmpi
 
 CC		:=$(MPI_HOME)/bin/mpicc 
 CXX		:=$(MPI_HOME)/bin/mpiCC
-CCFLAGS		:= -O3  -vec-report -xSSE2,SSE3,SSE3,SSE4.1,SSE4.2  -g #-DDEBUG
+CCFLAGS		:= -O2  -vec-report -xSSE2,SSE3,SSE4.1,SSE4.2  #-g #-DDEBUG
 
 
 #

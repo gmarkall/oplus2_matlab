@@ -122,8 +122,9 @@ void create_exp_list(op_set set, int* temp_list, set_halo_list halo_list,
     halo_list->list = list;
 }
 
-void create_imp_list(op_set set, int* temp_list, set_halo_list halo_list, int total_size, 
-    	int* ranks, int* sizes, int ranks_size, int comm_size, int my_rank)
+void create_imp_list(op_set set, int* temp_list, set_halo_list halo_list, 
+    int total_size, int* ranks, int* sizes, int ranks_size, int comm_size, 
+    int my_rank)
 {
     int* disps = (int *) xmalloc(comm_size*sizeof(int));
     disps[0] = 0;
@@ -223,7 +224,8 @@ int* create_exp_list_2(op_set set, int* temp_list, set_halo_list halo_list,
 /**special routine to create import list during partitioning map->to set 
 from map_>from set in partition_to_set()**/
 void create_imp_list_2(op_set set, int* temp_list, set_halo_list halo_list, 
-    int total_size, int* ranks, int* sizes, int ranks_size, int comm_size, int my_rank)
+    int total_size, int* ranks, int* sizes, int ranks_size, int comm_size, 
+    int my_rank)
 {
     int* disps = (int *) xmalloc(comm_size*sizeof(int));
     disps[0] = 0;
@@ -286,7 +288,8 @@ int partition_from_set(op_map map, int my_rank, int comm_size, int** part_range)
     int* sizes = (int *)xmalloc(comm_size*sizeof(int));
     
     set_halo_list pe_list = (set_halo_list) xmalloc(sizeof(set_halo_list_core));
-    find_neighbors_set(pi_list,neighbors,sizes,&ranks_size,my_rank,comm_size, OP_PART_WORLD);
+    find_neighbors_set(pi_list, neighbors, sizes, &ranks_size, my_rank, 
+    	comm_size, OP_PART_WORLD);
     
     MPI_Request request_send[pi_list->ranks_size];
     int* rbuf; 
@@ -377,7 +380,8 @@ int partition_from_set(op_map map, int my_rank, int comm_size, int** part_range)
     	    	     	 found_parts[j] = imp_part[elem];
     	    	     else
     	    	     {
-    	    	     	 printf("Element %d not found in partition import list\n",local_index);
+    	    	     	 printf("Element %d not found in partition import list\n",
+    	    	     	     local_index);
     	    	     	 exit(1);
     	    	     }
     	    	 }
@@ -468,7 +472,8 @@ int partition_to_set(op_map map, int my_rank, int comm_size, int** part_range)
     set_halo_list pi_list = (set_halo_list) xmalloc(sizeof(set_halo_list_core));
     int* part_list_i = NULL; //corresponding "to" element's partition infomation imported from an mpi rank
     
-    find_neighbors_set(pe_list,neighbors,sizes,&ranks_size,my_rank,comm_size, OP_PART_WORLD);
+    find_neighbors_set(pe_list,neighbors,sizes,&ranks_size,my_rank, 
+    	comm_size, OP_PART_WORLD);
     
     MPI_Request request_send_t[pe_list->ranks_size];
     MPI_Request request_send_p[pe_list->ranks_size];
@@ -523,8 +528,8 @@ int partition_to_set(op_map map, int my_rank, int comm_size, int** part_range)
     {
     	for(int j=0; j < map->dim; j++)
     	{
-    	    part = get_partition(map->map[i*map->dim+j], part_range[map->to->index],
-    	    	&local_index,comm_size);
+    	    part = get_partition(map->map[i*map->dim+j], 
+    	    	part_range[map->to->index], &local_index,comm_size);
     	    if(part == my_rank)
     	    {
     	    	if(count>=cap)
@@ -633,7 +638,7 @@ void partition_all(op_set primary_set, int my_rank, int comm_size)
     	    	//more than partitioning a set using a mapping to a partitioned set
     	    	//i.e. preferance is given to the latter over the former       	       
     	    	if(from_set->is_partitioned == 1 && 
-    	    	    compare_all_sets(map->from,all_partitioned_sets,sets_partitioned)>=0)
+    	    	    compare_all_sets(map->from,all_partitioned_sets, sets_partitioned)>=0)
     	    	    cost[map->index] = 2;
     	    	else if(to_set->is_partitioned == 1 && 
     	    	    compare_all_sets(map->to,all_partitioned_sets,sets_partitioned)>=0)
@@ -849,13 +854,15 @@ void partition_all(op_set primary_set, int my_rank, int comm_size)
     	    	{
     	    	    if(OP_part_list[set->index]->elem_part[i] == my_rank)
     	    	    {
-    	    	    	memcpy(&new_dat[count*dat->size],(void *)&OP_dat_list[dat->index]->
+    	    	    	memcpy(&new_dat[count*dat->size],
+    	    	    	    (void *)&OP_dat_list[dat->index]->
     	    	    	    data[dat->size*i],dat->size);
     	    	    	count++;
     	    	    }      	      	            	      		  
     	    	}
 
-    	    	memcpy(&new_dat[count*dat->size],(void *)rbuf,dat->size*imp->size);
+    	    	memcpy(&new_dat[count*dat->size],(void *)rbuf,
+    	    	    dat->size*imp->size);
     	    	count = count+imp->size;
     	    	new_dat = (char *)xrealloc(new_dat,dat->size*count);
     	    	free(rbuf);
@@ -900,7 +907,8 @@ void partition_all(op_set primary_set, int my_rank, int comm_size)
     	    	    }      	      	  
     	    	    //printf("\n export from %d to %d map %10s, number of elements of size %d | sending:\n ",
     	    	    //    my_rank,exp->ranks[i],map->name,exp->sizes[i]);
-    	    	    MPI_Isend(sbuf[i],  map->dim*exp->sizes[i],  MPI_INT, exp->ranks[i],
+    	    	    MPI_Isend(sbuf[i],  map->dim*exp->sizes[i],  
+    	    	    	MPI_INT, exp->ranks[i],
     	    	    	m, OP_PART_WORLD, &request_send[i]);
     	    	}
       	      
@@ -910,8 +918,10 @@ void partition_all(op_set primary_set, int my_rank, int comm_size)
     	    	for(int i=0; i < imp->ranks_size; i++) {
     	    	    //printf("\n imported on to %d map %10s, number of elements of size %d | recieving: ",
     	    	    //	  my_rank, map->name, imp->size);
-    	    	    MPI_Recv(&rbuf[imp->disps[i]*map->dim], map->dim*imp->sizes[i], 
-    	    	    	MPI_INT, imp->ranks[i], m, OP_PART_WORLD, MPI_STATUSES_IGNORE);
+    	    	    MPI_Recv(&rbuf[imp->disps[i]*map->dim], 
+    	    	    	map->dim*imp->sizes[i], 
+    	    	    	MPI_INT, imp->ranks[i], m, 
+    	    	    	OP_PART_WORLD, MPI_STATUSES_IGNORE);
     	    	}
       	      
     	    	MPI_Waitall(exp->ranks_size,request_send, MPI_STATUSES_IGNORE );
@@ -926,12 +936,14 @@ void partition_all(op_set primary_set, int my_rank, int comm_size)
     	    	{
     	    	    if(OP_part_list[map->from->index]->elem_part[i] == my_rank)
     	    	    {
-    	    	    	memcpy(&new_map[count*map->dim],(void *)&OP_map_list[map->index]->
-    	    	    	    map[map->dim*i],map->dim*sizeof(int));
+    	    	    	memcpy(&new_map[count*map->dim],
+    	    	    	    (void *)&OP_map_list[map->index]-> map[map->dim*i],
+    	    	    	    map->dim*sizeof(int));
     	    	    	count++;
     	    	    }
     	    	}
-    	    	memcpy(&new_map[count*map->dim],(void *)rbuf,map->dim*sizeof(int)*imp->size);
+    	    	memcpy(&new_map[count*map->dim],(void *)rbuf,
+    	    	    map->dim*sizeof(int)*imp->size);
     	    	count = count+imp->size;
     	    	new_map = (int *)xrealloc(new_map,sizeof(int)*count*map->dim);
     	    	
@@ -1100,7 +1112,6 @@ void partition_all(op_set primary_set, int my_rank, int comm_size)
       	//sort and remove duplicates
       	if(count > 0)
       	{
-
       	    quickSort(req_list, 0, count-1);
       	    count = removeDups(req_list, count);
       	    req_list = (int *)xrealloc(req_list, count*sizeof(int));
@@ -1246,7 +1257,9 @@ void partition_all(op_set primary_set, int my_rank, int comm_size)
       
       free(pi_list[set->index]->ranks);free(pi_list[set->index]->disps);
       free(pi_list[set->index]->sizes);free(pi_list[set->index]->list);
+      free(pe_list[set->index]);free(pi_list[set->index]);
     }
+    
     for(int i = 0; i<OP_set_index; i++)free(part_range[i]);free(part_range);
 }
 

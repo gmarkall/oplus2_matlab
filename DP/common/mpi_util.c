@@ -38,6 +38,8 @@
 //from www.gnu.org/
 void* xmalloc (size_t size)
 {
+    if(size == 0) return (void *)NULL;
+    
     register void *value = malloc (size);
     if (value == 0) printf("Virtual memory exhausted at malloc\n");
     return value;

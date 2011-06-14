@@ -425,13 +425,11 @@ int main(int argc, char **argv){
     MPI_Reduce(&time,&max_time,1,MPI_DOUBLE, MPI_MAX,0, MPI_COMM_WORLD);
     if(my_rank==0)printf("Max total runtime = %f\n",max_time);
     
+    //gatherprint_tofile(p_q, my_rank, comm_size, g_ncell);//, ncell);
+    
     op_halo_destroy();  
     op_partition_destroy();
     MPI_Finalize();   //user mpi finalize
 
 }
-
-
-
-
 

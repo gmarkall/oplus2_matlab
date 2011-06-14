@@ -30,6 +30,15 @@ op_arg* blank_arg(op_arg *arg)
     
 }
 
+#define HASHSIZE  50 
+unsigned hash(const char *s)
+{
+    unsigned hashval;
+    for (hashval = 0; *s != '\0'; s++)
+    	hashval = *s + 31 * hashval;
+    return hashval % HASHSIZE;
+}
+
 
 //                                                                        
 // op_par_loop routine for 2 arguments                                    
@@ -42,6 +51,8 @@ void op_par_loop(void (*kernel)( T0*, T1* ),
                                                                           
   char *p_arg0, *p_arg1;
   int exec_length = 0;
+  
+  int sent[2] = {0,0};
   
   // consistency checks                                                   
                                                                           
@@ -66,8 +77,8 @@ void op_par_loop(void (*kernel)( T0*, T1* ),
   if(arg0.idx != -1 || arg1.idx != -1)//indirect loop
   {
       //for each indirect data set
-      if(arg0.argtype == OP_ARG_DAT) exchange_halo(set, arg0);
-      if(arg1.argtype == OP_ARG_DAT) exchange_halo(set, arg1);
+      if(arg0.argtype == OP_ARG_DAT) sent[0] = exchange_halo(set, arg0); 
+      if(arg1.argtype == OP_ARG_DAT) sent[1] = exchange_halo(set, arg1);
       
       //for all indirect dataset access with OP_READ
       if(arg0.acc == OP_READ && arg1.acc == OP_READ   ) exec_length = set->size;
@@ -77,24 +88,37 @@ void op_par_loop(void (*kernel)( T0*, T1* ),
   {
       exec_length = set->size;
   }     
-                                                                          
+
   // loop over set elements                                               
   //(1) over owned partition                                                                        
-  for (int n=0; n<set->size; n++) {                                       
+  for (int n=0; n<owned_num[set->index]; n++) {
     op_arg_set(n,arg0 ,&p_arg0 );                                         
     op_arg_set(n,arg1 ,&p_arg1 );                                         
                                                                           
     // call kernel function, passing in pointers to data 
-    kernel( (T0 *)p_arg0,  (T1 *)p_arg1 );
+    kernel( (T0 *)p_arg0,  (T1 *)p_arg1);
   }
+  
+  //wait for comms to complete
+  if(arg0.argtype == OP_ARG_DAT) if(sent[0] == 1 )wait_all(set, arg0);
+  if(arg1.argtype == OP_ARG_DAT) if(sent[1] == 1 )wait_all(set, arg1);  
+  
+  for (int n=owned_num[set->index]; n<set->size; n++) {  
+      	  op_arg_set(n,arg0 ,&p_arg0 );
+      	  op_arg_set(n,arg1 ,&p_arg1 );
+                                                                          
+      	  // call kernel function, passing in pointers to data 
+      	  kernel( (T0 *)p_arg0,  (T1 *)p_arg1);  
+  }
+  
   
   //(2) over exec halo (blank out global parameters to avoid double counting)                                                                       
    for (int n=set->size; n<exec_length; n++) {                                  
-    op_arg_set(n,*(blank_arg(&arg0))  ,&p_arg0 );                                         
-    op_arg_set(n,*(blank_arg(&arg1))  ,&p_arg1 );                                         
+    op_arg_set(n,*(blank_arg(&arg0)),&p_arg0 );                                         
+    op_arg_set(n,*(blank_arg(&arg1)),&p_arg1 );                                         
                                                                           
     // call kernel function, passing in pointers to data 
-    kernel( (T0 *)p_arg0,  (T1 *)p_arg1 );
+    kernel( (T0 *)p_arg0,  (T1 *)p_arg1);  
   }
   
   //set dirty bit on direct/indirect datasets with access OP_INC,OP_WRITE, OP_RW
@@ -110,11 +134,12 @@ void op_par_loop(void (*kernel)( T0*, T1* ),
   //update timer record
     op_timers(&cpu_t2, &wall_t2);
     
-    op_timing_realloc(0);
-    if(OP_kernels[0].count==0)
-    	OP_kernels[0].name     = name;
-    OP_kernels[0].count    += 1;
-    OP_kernels[0].time     += wall_t2 - wall_t1;
+    /*int kernel_index = hash(name);  
+    op_timing_realloc(kernel_index);
+    if(OP_kernels[kernel_index].count==0)
+    	OP_kernels[kernel_index].name     = name;
+    OP_kernels[kernel_index].count    += 1;
+    OP_kernels[kernel_index].time     += wall_t2 - wall_t1;*/
 }  
 
 
@@ -133,17 +158,18 @@ void op_par_loop(void (*kernel)( T0*, T1*, T2*, T3*,
   char *p_arg0, *p_arg1, *p_arg2, *p_arg3,                                
        *p_arg4;     
   int exec_length = 0;
+   int sent[5] = {0,0,0,0,0};
   
   // consistency checks                                                   
                                                                           
   int ninds=0;                                                            
                                                                           
-  if (OP_diags>0) {                                                       
-   op_arg_check(set,0 ,arg0 ,&ninds,name);                                
-   op_arg_check(set,1 ,arg1 ,&ninds,name);                                
-   op_arg_check(set,2 ,arg2 ,&ninds,name);                                
-   op_arg_check(set,3 ,arg3 ,&ninds,name);                                
-   op_arg_check(set,4 ,arg4 ,&ninds,name);                                                            
+  if (OP_diags>0) {
+      op_arg_check(set,0 ,arg0 ,&ninds,name);
+      op_arg_check(set,1 ,arg1 ,&ninds,name);
+      op_arg_check(set,2 ,arg2 ,&ninds,name);
+      op_arg_check(set,3 ,arg3 ,&ninds,name);
+      op_arg_check(set,4 ,arg4 ,&ninds,name);                                                            
   }                                                                       
                                                                           
   if (OP_diags>2) {                                                       
@@ -161,15 +187,15 @@ void op_par_loop(void (*kernel)( T0*, T1*, T2*, T3*,
      arg4.idx != -1 )//indirect loop
   {
       //for each indirect data set
-      if(arg0.argtype == OP_ARG_DAT) exchange_halo(set, arg0);
-      if(arg1.argtype == OP_ARG_DAT) exchange_halo(set, arg1);
-      if(arg2.argtype == OP_ARG_DAT) exchange_halo(set, arg2);
-      if(arg3.argtype == OP_ARG_DAT) exchange_halo(set, arg3);
-      if(arg4.argtype == OP_ARG_DAT) exchange_halo(set, arg4);
+      if(arg0.argtype == OP_ARG_DAT) sent[0] = exchange_halo(set, arg0);
+      if(arg1.argtype == OP_ARG_DAT) sent[1] = exchange_halo(set, arg1);
+      if(arg2.argtype == OP_ARG_DAT) sent[2] = exchange_halo(set, arg2);
+      if(arg3.argtype == OP_ARG_DAT) sent[3] = exchange_halo(set, arg3);
+      if(arg4.argtype == OP_ARG_DAT) sent[4] = exchange_halo(set, arg4);
 
       //for all indirect dataset access with OP_READ
-      if(arg0.acc == OP_READ && arg1.acc == OP_READ && arg2.acc == OP_READ && arg3.acc == OP_READ &&
-      	  arg4.acc == OP_READ )
+      if(arg0.acc == OP_READ && arg1.acc == OP_READ && arg2.acc == OP_READ && 
+      	  arg3.acc == OP_READ && arg4.acc == OP_READ )
       exec_length = set->size;
       else  exec_length = set->size + OP_import_sets_list[set->index]->size;
   }
@@ -177,34 +203,51 @@ void op_par_loop(void (*kernel)( T0*, T1*, T2*, T3*,
   {
       exec_length = set->size;
   }
-                                                                               
+           
   // loop over set elements                                               
   //(1) over owned partition                                                                        
-  for (int n=0; n<set->size; n++) {                                       
+  for (int n=0; n<owned_num[set->index]; n++) {
     op_arg_set(n,arg0 ,&p_arg0 );                                         
     op_arg_set(n,arg1 ,&p_arg1 );                                         
     op_arg_set(n,arg2 ,&p_arg2 );                                         
     op_arg_set(n,arg3 ,&p_arg3 );                                         
-    op_arg_set(n,arg4 ,&p_arg4 );                                                                               
+    op_arg_set(n,arg4 ,&p_arg4 );                                         
                                                                           
     // call kernel function, passing in pointers to data 
     kernel( (T0 *)p_arg0,  (T1 *)p_arg1,  (T2 *)p_arg2,  (T3 *)p_arg3,    
-            (T4 *)p_arg4 );  
+            (T4 *)p_arg4); 
   }
   
+   //wait for comms to complete
+  if(arg0.argtype == OP_ARG_DAT) if(sent[0] == 1 )wait_all(set, arg0);
+  if(arg1.argtype == OP_ARG_DAT) if(sent[1] == 1 )wait_all(set, arg1);
+  if(arg2.argtype == OP_ARG_DAT) if(sent[2] == 1 )wait_all(set, arg2);
+  if(arg3.argtype == OP_ARG_DAT) if(sent[3] == 1 )wait_all(set, arg3);
+  if(arg4.argtype == OP_ARG_DAT) if(sent[4] == 1 )wait_all(set, arg4);
   
-
+  for (int n=owned_num[set->index]; n<set->size; n++) {  
+      op_arg_set(n,arg0 ,&p_arg0 );
+      op_arg_set(n,arg1 ,&p_arg1 );
+      op_arg_set(n,arg2 ,&p_arg2 );
+      op_arg_set(n,arg3 ,&p_arg3 );
+      op_arg_set(n,arg4 ,&p_arg4 );
+      
+      // call kernel function, passing in pointers to data
+      kernel( (T0 *)p_arg0,  (T1 *)p_arg1,  (T2 *)p_arg2,  (T3 *)p_arg3,
+      	  (T4 *)p_arg4); 
+  }  
+  
   //(2) over exec halo (blank out global parameters to avoid double counting)                                                                       
-   for (int n=set->size; n<exec_length; n++) {                                  
-       op_arg_set(n,*(blank_arg(&arg0)) ,&p_arg0 );
-       op_arg_set(n,*(blank_arg(&arg1)) ,&p_arg1 );
-       op_arg_set(n,*(blank_arg(&arg2)) ,&p_arg2 );
-       op_arg_set(n,*(blank_arg(&arg3)) ,&p_arg3 );
-       op_arg_set(n,*(blank_arg(&arg4)) ,&p_arg4 );
+   for (int n=set->size; n<exec_length; n++) {  
+       op_arg_set(n,*(blank_arg(&arg0)),&p_arg0 );
+       op_arg_set(n,*(blank_arg(&arg1)),&p_arg1 );
+       op_arg_set(n,*(blank_arg(&arg2)),&p_arg2 );
+       op_arg_set(n,*(blank_arg(&arg3)),&p_arg3 );
+       op_arg_set(n,*(blank_arg(&arg4)),&p_arg4 );                                                                                                                                
                                                                           
-    // call kernel function, passing in pointers to data 
-    kernel( (T0 *)p_arg0,  (T1 *)p_arg1,  (T2 *)p_arg2,  (T3 *)p_arg3,    
-            (T4 *)p_arg4 );  
+       // call kernel function, passing in pointers to data 
+       kernel( (T0 *)p_arg0,  (T1 *)p_arg1,  (T2 *)p_arg2,  (T3 *)p_arg3,    
+       	     (T4 *)p_arg4);  
   }
   
   //set dirty bit on direct/indirect datasets with access OP_INC,OP_WRITE, OP_RW
@@ -229,11 +272,12 @@ void op_par_loop(void (*kernel)( T0*, T1*, T2*, T3*,
   //update timer record
   op_timers(&cpu_t2, &wall_t2);
   
-  op_timing_realloc(4);
-  if(OP_kernels[4].count==0)
-      OP_kernels[4].name     = name;
-  OP_kernels[4].count    += 1;
-  OP_kernels[4].time     += wall_t2 - wall_t1;
+  /*int kernel_index = hash(name);  
+  op_timing_realloc(kernel_index);
+  if(OP_kernels[kernel_index].count==0)
+      OP_kernels[kernel_index].name     = name;
+  OP_kernels[kernel_index].count    += 1;
+  OP_kernels[kernel_index].time     += wall_t2 - wall_t1;*/
 }  
 
 
@@ -253,6 +297,8 @@ void op_par_loop(void (*kernel)( T0*, T1*, T2*, T3*,
   char *p_arg0, *p_arg1, *p_arg2, *p_arg3,                                
        *p_arg4, *p_arg5;    
   int exec_length = 0;
+  
+  int sent[6] = {0,0,0,0,0,0};
   
   // consistency checks                                                   
                                                                           
@@ -282,16 +328,16 @@ void op_par_loop(void (*kernel)( T0*, T1*, T2*, T3*,
      arg4.idx != -1 || arg5.idx != -1)//indirect loop
   {
       //for each indirect data set
-      if(arg0.argtype == OP_ARG_DAT)exchange_halo(set, arg0);
-      if(arg1.argtype == OP_ARG_DAT)exchange_halo(set, arg1);
-      if(arg2.argtype == OP_ARG_DAT)exchange_halo(set, arg2);
-      if(arg3.argtype == OP_ARG_DAT)exchange_halo(set, arg3);
-      if(arg4.argtype == OP_ARG_DAT)exchange_halo(set, arg4);
-      if(arg5.argtype == OP_ARG_DAT)exchange_halo(set, arg5);
+      if(arg0.argtype == OP_ARG_DAT) sent[0] = exchange_halo(set, arg0); 
+      if(arg1.argtype == OP_ARG_DAT) sent[1] = exchange_halo(set, arg1);
+      if(arg2.argtype == OP_ARG_DAT) sent[2] = exchange_halo(set, arg2);
+      if(arg3.argtype == OP_ARG_DAT) sent[3] = exchange_halo(set, arg3); 
+      if(arg4.argtype == OP_ARG_DAT) sent[4] = exchange_halo(set, arg4); 
+      if(arg5.argtype == OP_ARG_DAT) sent[5] = exchange_halo(set, arg5);
 
       //for all indirect dataset access with OP_READ
-      if(arg0.acc == OP_READ && arg1.acc == OP_READ && arg2.acc == OP_READ && arg3.acc == OP_READ &&
-      	  arg4.acc == OP_READ && arg5.acc == OP_READ)
+      if(arg0.acc == OP_READ && arg1.acc == OP_READ && arg2.acc == OP_READ && 
+      	  arg3.acc == OP_READ && arg4.acc == OP_READ && arg5.acc == OP_READ)
       exec_length = set->size;
       else  exec_length = set->size + OP_import_sets_list[set->index]->size;
   }
@@ -299,34 +345,55 @@ void op_par_loop(void (*kernel)( T0*, T1*, T2*, T3*,
   {
       exec_length = set->size;
   }
-                                                                               
+  
   // loop over set elements                                               
   //(1) over owned partition                                                                        
-  for (int n=0; n<set->size; n++) {                                       
-    op_arg_set(n,arg0 ,&p_arg0 );                                         
-    op_arg_set(n,arg1 ,&p_arg1 );                                         
-    op_arg_set(n,arg2 ,&p_arg2 );                                         
-    op_arg_set(n,arg3 ,&p_arg3 );                                         
-    op_arg_set(n,arg4 ,&p_arg4 );                                         
-    op_arg_set(n,arg5 ,&p_arg5 );                                         
+  for (int n=0; n<owned_num[set->index]; n++) {
+      op_arg_set(n,arg0 ,&p_arg0 );
+      op_arg_set(n,arg1 ,&p_arg1 );
+      op_arg_set(n,arg2 ,&p_arg2 );
+      op_arg_set(n,arg3 ,&p_arg3 );
+      op_arg_set(n,arg4 ,&p_arg4 );
+      op_arg_set(n,arg5 ,&p_arg5 );                                         
                                                                           
-    // call kernel function, passing in pointers to data 
-    kernel( (T0 *)p_arg0,  (T1 *)p_arg1,  (T2 *)p_arg2,  (T3 *)p_arg3,    
+      // call kernel function, passing in pointers to data 
+      kernel( (T0 *)p_arg0,  (T1 *)p_arg1,  (T2 *)p_arg2,  (T3 *)p_arg3,    
             (T4 *)p_arg4,  (T5 *)p_arg5 );  
   }
   
-  //(2) over exec halo (blank out global parameters to avoid double counting)                                                                       
-   for (int n=set->size; n<exec_length; n++) {                                  
-    op_arg_set(n,*(blank_arg(&arg0)) ,&p_arg0 );                                         
-    op_arg_set(n,*(blank_arg(&arg1)) ,&p_arg1 );                                         
-    op_arg_set(n,*(blank_arg(&arg2)) ,&p_arg2 );                                         
-    op_arg_set(n,*(blank_arg(&arg3)) ,&p_arg3 );                                         
-    op_arg_set(n,*(blank_arg(&arg4)) ,&p_arg4 );                                         
-    op_arg_set(n,*(blank_arg(&arg5)) ,&p_arg5 );                                         
+    //wait for comms to complete
+  if(arg0.argtype == OP_ARG_DAT) if(sent[0] == 1 )wait_all(set, arg0);
+  if(arg1.argtype == OP_ARG_DAT) if(sent[1] == 1 )wait_all(set, arg1);
+  if(arg2.argtype == OP_ARG_DAT) if(sent[2] == 1 )wait_all(set, arg2);
+  if(arg3.argtype == OP_ARG_DAT) if(sent[3] == 1 )wait_all(set, arg3);
+  if(arg4.argtype == OP_ARG_DAT) if(sent[4] == 1 )wait_all(set, arg4);
+  if(arg5.argtype == OP_ARG_DAT) if(sent[5] == 1 )wait_all(set, arg5); 
+  
+  for (int n=owned_num[set->index]; n<set->size; n++) {  
+      op_arg_set(n,arg0 ,&p_arg0 );
+      op_arg_set(n,arg1 ,&p_arg1 );
+      op_arg_set(n,arg2 ,&p_arg2 );                                         
+      op_arg_set(n,arg3 ,&p_arg3 );                                         
+      op_arg_set(n,arg4 ,&p_arg4 );                                         
+      op_arg_set(n,arg5 ,&p_arg5 );                                                                                  
                                                                           
-    // call kernel function, passing in pointers to data 
-    kernel( (T0 *)p_arg0,  (T1 *)p_arg1,  (T2 *)p_arg2,  (T3 *)p_arg3,    
-            (T4 *)p_arg4,  (T5 *)p_arg5 );  
+      // call kernel function, passing in pointers to data 
+      kernel( (T0 *)p_arg0,  (T1 *)p_arg1,  (T2 *)p_arg2,  (T3 *)p_arg3,    
+          (T4 *)p_arg4,  (T5 *)p_arg5);  
+  }  
+  
+  //(2) over exec halo (blank out global parameters to avoid double counting)                                                                       
+   for (int n=set->size; n<exec_length; n++) {  
+       op_arg_set(n,*(blank_arg(&arg0)),&p_arg0 );                                         
+       op_arg_set(n,*(blank_arg(&arg1)),&p_arg1 );                                         
+       op_arg_set(n,*(blank_arg(&arg2)),&p_arg2 );                                         
+       op_arg_set(n,*(blank_arg(&arg3)),&p_arg3 );                                         
+       op_arg_set(n,*(blank_arg(&arg4)),&p_arg4 );                                         
+       op_arg_set(n,*(blank_arg(&arg5)),&p_arg5 );                                                                                       
+                                                                          
+       // call kernel function, passing in pointers to data 
+       kernel( (T0 *)p_arg0,  (T1 *)p_arg1,  (T2 *)p_arg2,  (T3 *)p_arg3,    
+       	     (T4 *)p_arg4,  (T5 *)p_arg5);  
   }
   
   //set dirty bit on direct/indirect datasets with access OP_INC,OP_WRITE, OP_RW
@@ -354,11 +421,12 @@ void op_par_loop(void (*kernel)( T0*, T1*, T2*, T3*,
   //update timer record
     op_timers(&cpu_t2, &wall_t2);
     
-    op_timing_realloc(1);
-    if(OP_kernels[1].count==0)
-    	OP_kernels[1].name     = name;
-    OP_kernels[1].count    += 1;
-    OP_kernels[1].time     += wall_t2 - wall_t1;
+    /*int kernel_index = hash(name);  
+    op_timing_realloc(kernel_index);
+    if(OP_kernels[kernel_index].count==0)
+    	OP_kernels[kernel_index].name     = name;
+    OP_kernels[kernel_index].count    += 1;
+    OP_kernels[kernel_index].time     += wall_t2 - wall_t1;*/
 }  
 
 
@@ -380,19 +448,21 @@ void op_par_loop(void (*kernel)( T0*, T1*, T2*, T3*,
        *p_arg4, *p_arg5, *p_arg6, *p_arg7;          
   int exec_length = 0;
   
+  int sent[8] = {0,0,0,0,0,0,0,0};
+  
   // consistency checks                                                   
                                                                           
   int ninds=0;                                                            
                                                                           
-  if (OP_diags>0) {                                                       
-   op_arg_check(set,0 ,arg0 ,&ninds,name);                                
-   op_arg_check(set,1 ,arg1 ,&ninds,name);                                
-   op_arg_check(set,2 ,arg2 ,&ninds,name);                                
-   op_arg_check(set,3 ,arg3 ,&ninds,name);                                
-   op_arg_check(set,4 ,arg4 ,&ninds,name);                                
-   op_arg_check(set,5 ,arg5 ,&ninds,name);                                
-   op_arg_check(set,6 ,arg6 ,&ninds,name);                                
-   op_arg_check(set,7 ,arg7 ,&ninds,name);                              
+  if (OP_diags>0) {    
+      op_arg_check(set,0 ,arg0 ,&ninds,name);                                
+      op_arg_check(set,1 ,arg1 ,&ninds,name);                                
+      op_arg_check(set,2 ,arg2 ,&ninds,name);                                
+      op_arg_check(set,3 ,arg3 ,&ninds,name);                                
+      op_arg_check(set,4 ,arg4 ,&ninds,name);                                
+      op_arg_check(set,5 ,arg5 ,&ninds,name);                                
+      op_arg_check(set,6 ,arg6 ,&ninds,name);                                
+      op_arg_check(set,7 ,arg7 ,&ninds,name);                              
   }                                                                       
                                                                           
   if (OP_diags>2) {                                                       
@@ -410,18 +480,19 @@ void op_par_loop(void (*kernel)( T0*, T1*, T2*, T3*,
      arg4.idx != -1 || arg5.idx != -1 || arg6.idx != -1 || arg7.idx != -1)//indirect loop
   {
       //for each indirect data set
-      if(arg0.argtype == OP_ARG_DAT)exchange_halo(set, arg0);
-      if(arg1.argtype == OP_ARG_DAT)exchange_halo(set, arg1);
-      if(arg2.argtype == OP_ARG_DAT)exchange_halo(set, arg2);
-      if(arg3.argtype == OP_ARG_DAT)exchange_halo(set, arg3);
-      if(arg4.argtype == OP_ARG_DAT)exchange_halo(set, arg4);
-      if(arg5.argtype == OP_ARG_DAT)exchange_halo(set, arg5);
-      if(arg6.argtype == OP_ARG_DAT)exchange_halo(set, arg6);
-      if(arg7.argtype == OP_ARG_DAT)exchange_halo(set, arg7);
-      
+      if(arg0.argtype == OP_ARG_DAT) sent[0] = exchange_halo(set, arg0); 
+      if(arg1.argtype == OP_ARG_DAT) sent[1] = exchange_halo(set, arg1);
+      if(arg2.argtype == OP_ARG_DAT) sent[2] = exchange_halo(set, arg2);
+      if(arg3.argtype == OP_ARG_DAT) sent[3] = exchange_halo(set, arg3);
+      if(arg4.argtype == OP_ARG_DAT) sent[4] = exchange_halo(set, arg4);
+      if(arg5.argtype == OP_ARG_DAT) sent[5] = exchange_halo(set, arg5);
+      if(arg6.argtype == OP_ARG_DAT) sent[6] = exchange_halo(set, arg6);
+      if(arg7.argtype == OP_ARG_DAT) sent[7] = exchange_halo(set, arg7);
+  
       //for all indirect dataset access with OP_READ
-      if(arg0.acc == OP_READ && arg1.acc == OP_READ && arg2.acc == OP_READ && arg3.acc == OP_READ &&
-      	  arg4.acc == OP_READ && arg5.acc == OP_READ && arg6.acc == OP_READ && arg7.acc == OP_READ)
+      if(arg0.acc == OP_READ && arg1.acc == OP_READ && arg2.acc == OP_READ && 
+      	  arg3.acc == OP_READ && arg4.acc == OP_READ && arg5.acc == OP_READ && 
+      	  arg6.acc == OP_READ && arg7.acc == OP_READ)
       exec_length = set->size;
       else  exec_length = set->size + OP_import_sets_list[set->index]->size;
   }
@@ -429,38 +500,64 @@ void op_par_loop(void (*kernel)( T0*, T1*, T2*, T3*,
   {
       exec_length = set->size;
   }
-                                                                               
+  
   // loop over set elements                                               
   //(1) over owned partition                                                                        
-  for (int n=0; n<set->size; n++) {                                       
-    op_arg_set(n,arg0 ,&p_arg0 );                                         
-    op_arg_set(n,arg1 ,&p_arg1 );                                         
-    op_arg_set(n,arg2 ,&p_arg2 );                                         
-    op_arg_set(n,arg3 ,&p_arg3 );                                         
-    op_arg_set(n,arg4 ,&p_arg4 );                                         
-    op_arg_set(n,arg5 ,&p_arg5 );                                         
-    op_arg_set(n,arg6 ,&p_arg6 );                                         
-    op_arg_set(n,arg7 ,&p_arg7 );                                             
+    for (int n=0; n<owned_num[set->index]; n++) { 
+    	op_arg_set(n,arg0 ,&p_arg0 );                                         
+    	op_arg_set(n,arg1 ,&p_arg1 );                                         
+    	op_arg_set(n,arg2 ,&p_arg2 );                                         
+    	op_arg_set(n,arg3 ,&p_arg3 );                                         
+    	op_arg_set(n,arg4 ,&p_arg4 );                                         
+    	op_arg_set(n,arg5 ,&p_arg5 );                                         
+    	op_arg_set(n,arg6 ,&p_arg6 );                                         
+    	op_arg_set(n,arg7 ,&p_arg7 );                                             
                                                                           
-    // call kernel function, passing in pointers to data 
-    kernel( (T0 *)p_arg0,  (T1 *)p_arg1,  (T2 *)p_arg2,  (T3 *)p_arg3,    
-            (T4 *)p_arg4,  (T5 *)p_arg5,  (T6 *)p_arg6,  (T7 *)p_arg7 );  
+    	// call kernel function, passing in pointers to data 
+    	kernel( (T0 *)p_arg0,  (T1 *)p_arg1,  (T2 *)p_arg2,  (T3 *)p_arg3,
+    	    (T4 *)p_arg4,  (T5 *)p_arg5,  (T6 *)p_arg6,  (T7 *)p_arg7 );  
   }
   
-  //(2) over exec halo (blank out global parameters to avoid double counting)                                                                       
-   for (int n=set->size; n<exec_length; n++) {                                  
-    op_arg_set(n,*(blank_arg(&arg0)) ,&p_arg0 );                                         
-    op_arg_set(n,*(blank_arg(&arg1)) ,&p_arg1 );                                         
-    op_arg_set(n,*(blank_arg(&arg2)) ,&p_arg2 );                                         
-    op_arg_set(n,*(blank_arg(&arg3)) ,&p_arg3 );                                         
-    op_arg_set(n,*(blank_arg(&arg4)) ,&p_arg4 );                                         
-    op_arg_set(n,*(blank_arg(&arg5)) ,&p_arg5 );                                            
-    op_arg_set(n,*(blank_arg(&arg6)) ,&p_arg6 );                                         
-    op_arg_set(n,*(blank_arg(&arg7)) ,&p_arg7 );                                             
+  //wait for comms to complete
+  if(arg0.argtype == OP_ARG_DAT && sent[0] == 1 )wait_all(set, arg0);
+  if(arg1.argtype == OP_ARG_DAT && sent[1] == 1 )wait_all(set, arg1);
+  if(arg2.argtype == OP_ARG_DAT && sent[2] == 1 )wait_all(set, arg2);
+  if(arg3.argtype == OP_ARG_DAT && sent[3] == 1 )wait_all(set, arg3);
+  if(arg4.argtype == OP_ARG_DAT && sent[4] == 1 )wait_all(set, arg4);
+  if(arg5.argtype == OP_ARG_DAT && sent[5] == 1 )wait_all(set, arg5);
+  if(arg6.argtype == OP_ARG_DAT && sent[6] == 1 )wait_all(set, arg6);
+  if(arg7.argtype == OP_ARG_DAT && sent[7] == 1 )wait_all(set, arg7);
+  
+  for (int n=owned_num[set->index]; n<set->size; n++) { 
+      op_arg_set(n,arg0 ,&p_arg0 );
+      op_arg_set(n,arg1 ,&p_arg1 );                                         
+      op_arg_set(n,arg2 ,&p_arg2 );                                         
+      op_arg_set(n,arg3 ,&p_arg3 );                                         
+      op_arg_set(n,arg4 ,&p_arg4 );                                         
+      op_arg_set(n,arg5 ,&p_arg5 );                                         
+      op_arg_set(n,arg6 ,&p_arg6 );                                         
+      op_arg_set(n,arg7 ,&p_arg7 );                                             
                                                                           
-    // call kernel function, passing in pointers to data 
-    kernel( (T0 *)p_arg0,  (T1 *)p_arg1,  (T2 *)p_arg2,  (T3 *)p_arg3,    
-            (T4 *)p_arg4,  (T5 *)p_arg5,  (T6 *)p_arg6,  (T7 *)p_arg7 );  
+      // call kernel function, passing in pointers to data 
+      kernel( (T0 *)p_arg0,  (T1 *)p_arg1,  (T2 *)p_arg2,  (T3 *)p_arg3,
+      	  (T4 *)p_arg4,  (T5 *)p_arg5,  (T6 *)p_arg6,  (T7 *)p_arg7 );
+  }
+  
+  
+  //(2) over exec halo (blank out global parameters to avoid double counting)                                                                       
+   for (int n=set->size; n<exec_length; n++) {
+       op_arg_set(n,*(blank_arg(&arg0)),&p_arg0 );                                         
+       op_arg_set(n,*(blank_arg(&arg1)),&p_arg1 );                                         
+       op_arg_set(n,*(blank_arg(&arg2)),&p_arg2 );                                         
+       op_arg_set(n,*(blank_arg(&arg3)),&p_arg3 );                                         
+       op_arg_set(n,*(blank_arg(&arg4)),&p_arg4 );                                         
+       op_arg_set(n,*(blank_arg(&arg5)),&p_arg5 );                                            
+       op_arg_set(n,*(blank_arg(&arg6)),&p_arg6 );                                         
+       op_arg_set(n,*(blank_arg(&arg7)),&p_arg7 );                                             
+       
+       // call kernel function, passing in pointers to data 
+       kernel( (T0 *)p_arg0,  (T1 *)p_arg1,  (T2 *)p_arg2,  (T3 *)p_arg3,    
+       	     (T4 *)p_arg4,  (T5 *)p_arg5,  (T6 *)p_arg6,  (T7 *)p_arg7 );  
   }
   
   //set dirty bit on direct/indirect datasets with access OP_INC,OP_WRITE, OP_RW
@@ -492,12 +589,12 @@ void op_par_loop(void (*kernel)( T0*, T1*, T2*, T3*,
       global_reduce(&arg7);
   
   //update timer record
-    op_timers(&cpu_t2, &wall_t2);    
+    op_timers(&cpu_t2, &wall_t2);   
     
-    
-    op_timing_realloc(2);
-    if(OP_kernels[2].count==0)
-    	OP_kernels[2].name     = name;
-    OP_kernels[2].count    += 1;
-    OP_kernels[2].time     += wall_t2 - wall_t1;
+    /*int kernel_index = hash(name);  
+    op_timing_realloc(kernel_index);
+    if(OP_kernels[kernel_index].count==0)
+    	OP_kernels[kernel_index].name     = name;
+    OP_kernels[kernel_index].count    += 1;
+    OP_kernels[kernel_index].time     += wall_t2 - wall_t1;*/
 }  
