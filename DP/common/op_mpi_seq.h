@@ -19,7 +19,8 @@ op_arg* blank_arg(op_arg *arg)
 {
   
   op_arg *junck = NULL;
-  if(arg->argtype == OP_ARG_GBL && arg->acc != OP_READ)//this argument is OP_GBL and OP_INC or OP_MAX/MIN
+  if(arg->argtype == OP_ARG_GBL && //this argument is OP_GBL and 
+     arg->acc != OP_READ)	   //OP_INC or OP_MAX/MIN
   {   
       return junck;
   }
@@ -76,6 +77,11 @@ void op_par_loop(void (*kernel)( T0*, T1* ),
   
   if(arg0.idx != -1 || arg1.idx != -1)//indirect loop
   {
+      if (OP_diags>2) { 
+      	  if(arg0.argtype == OP_ARG_DAT) reset_halo(set, arg0);
+      	  if(arg1.argtype == OP_ARG_DAT) reset_halo(set, arg1);
+      }
+      
       //for each indirect data set
       if(arg0.argtype == OP_ARG_DAT) sent[0] = exchange_halo(set, arg0); 
       if(arg1.argtype == OP_ARG_DAT) sent[1] = exchange_halo(set, arg1);
@@ -134,12 +140,13 @@ void op_par_loop(void (*kernel)( T0*, T1* ),
   //update timer record
     op_timers(&cpu_t2, &wall_t2);
     
-    /*int kernel_index = hash(name);  
+    int kernel_index = hash(name);  
+    //printf("name: %s kernel_index: %d\n",name,kernel_index);;
     op_timing_realloc(kernel_index);
     if(OP_kernels[kernel_index].count==0)
     	OP_kernels[kernel_index].name     = name;
     OP_kernels[kernel_index].count    += 1;
-    OP_kernels[kernel_index].time     += wall_t2 - wall_t1;*/
+    OP_kernels[kernel_index].time     += wall_t2 - wall_t1;
 }  
 
 
@@ -186,6 +193,14 @@ void op_par_loop(void (*kernel)( T0*, T1*, T2*, T3*,
   if(arg0.idx != -1 || arg1.idx != -1 || arg2.idx != -1 || arg3.idx != -1 ||
      arg4.idx != -1 )//indirect loop
   {
+      if (OP_diags>2) { 
+      	  if(arg0.argtype == OP_ARG_DAT) reset_halo(set, arg0);
+      	  if(arg1.argtype == OP_ARG_DAT) reset_halo(set, arg1);
+      	  if(arg2.argtype == OP_ARG_DAT) reset_halo(set, arg2);
+      	  if(arg3.argtype == OP_ARG_DAT) reset_halo(set, arg3);
+      	  if(arg4.argtype == OP_ARG_DAT) reset_halo(set, arg4);
+      }
+      
       //for each indirect data set
       if(arg0.argtype == OP_ARG_DAT) sent[0] = exchange_halo(set, arg0);
       if(arg1.argtype == OP_ARG_DAT) sent[1] = exchange_halo(set, arg1);
@@ -272,12 +287,13 @@ void op_par_loop(void (*kernel)( T0*, T1*, T2*, T3*,
   //update timer record
   op_timers(&cpu_t2, &wall_t2);
   
-  /*int kernel_index = hash(name);  
+  int kernel_index = hash(name);  
+  //printf("name: %s kernel_index: %d\n",name,kernel_index);;
   op_timing_realloc(kernel_index);
   if(OP_kernels[kernel_index].count==0)
       OP_kernels[kernel_index].name     = name;
   OP_kernels[kernel_index].count    += 1;
-  OP_kernels[kernel_index].time     += wall_t2 - wall_t1;*/
+  OP_kernels[kernel_index].time     += wall_t2 - wall_t1;
 }  
 
 
@@ -327,6 +343,15 @@ void op_par_loop(void (*kernel)( T0*, T1*, T2*, T3*,
   if(arg0.idx != -1 || arg1.idx != -1 || arg2.idx != -1 || arg3.idx != -1 ||
      arg4.idx != -1 || arg5.idx != -1)//indirect loop
   {
+      if (OP_diags>2) { 
+      	  if(arg0.argtype == OP_ARG_DAT) reset_halo(set, arg0);
+      	  if(arg1.argtype == OP_ARG_DAT) reset_halo(set, arg1);
+      	  if(arg2.argtype == OP_ARG_DAT) reset_halo(set, arg2);
+      	  if(arg3.argtype == OP_ARG_DAT) reset_halo(set, arg3);
+      	  if(arg4.argtype == OP_ARG_DAT) reset_halo(set, arg4);
+      	  if(arg5.argtype == OP_ARG_DAT) reset_halo(set, arg5);
+      }
+      
       //for each indirect data set
       if(arg0.argtype == OP_ARG_DAT) sent[0] = exchange_halo(set, arg0); 
       if(arg1.argtype == OP_ARG_DAT) sent[1] = exchange_halo(set, arg1);
@@ -421,12 +446,13 @@ void op_par_loop(void (*kernel)( T0*, T1*, T2*, T3*,
   //update timer record
     op_timers(&cpu_t2, &wall_t2);
     
-    /*int kernel_index = hash(name);  
+    int kernel_index = hash(name);
+    //printf("name: %s kernel_index: %d\n",name,kernel_index);;
     op_timing_realloc(kernel_index);
     if(OP_kernels[kernel_index].count==0)
     	OP_kernels[kernel_index].name     = name;
     OP_kernels[kernel_index].count    += 1;
-    OP_kernels[kernel_index].time     += wall_t2 - wall_t1;*/
+    OP_kernels[kernel_index].time     += wall_t2 - wall_t1;
 }  
 
 
@@ -472,6 +498,8 @@ void op_par_loop(void (*kernel)( T0*, T1*, T2*, T3*,
       printf(" kernel routine with indirection: %s \n",name);             
   }  
   
+
+      
   // initialise timers
   double cpu_t1, cpu_t2, wall_t1, wall_t2;
   op_timers(&cpu_t1, &wall_t1); 
@@ -479,6 +507,17 @@ void op_par_loop(void (*kernel)( T0*, T1*, T2*, T3*,
   if(arg0.idx != -1 || arg1.idx != -1 || arg2.idx != -1 || arg3.idx != -1 ||
      arg4.idx != -1 || arg5.idx != -1 || arg6.idx != -1 || arg7.idx != -1)//indirect loop
   {
+      if (OP_diags>2) { 
+      	  if(arg0.argtype == OP_ARG_DAT) reset_halo(set, arg0);
+      	  if(arg1.argtype == OP_ARG_DAT) reset_halo(set, arg1);
+      	  if(arg2.argtype == OP_ARG_DAT) reset_halo(set, arg2);
+      	  if(arg3.argtype == OP_ARG_DAT) reset_halo(set, arg3);
+      	  if(arg4.argtype == OP_ARG_DAT) reset_halo(set, arg4);
+      	  if(arg5.argtype == OP_ARG_DAT) reset_halo(set, arg5);
+      	  if(arg6.argtype == OP_ARG_DAT) reset_halo(set, arg6);
+      	  if(arg7.argtype == OP_ARG_DAT) reset_halo(set, arg7);
+      }
+  
       //for each indirect data set
       if(arg0.argtype == OP_ARG_DAT) sent[0] = exchange_halo(set, arg0); 
       if(arg1.argtype == OP_ARG_DAT) sent[1] = exchange_halo(set, arg1);
@@ -589,12 +628,13 @@ void op_par_loop(void (*kernel)( T0*, T1*, T2*, T3*,
       global_reduce(&arg7);
   
   //update timer record
-    op_timers(&cpu_t2, &wall_t2);   
-    
-    /*int kernel_index = hash(name);  
-    op_timing_realloc(kernel_index);
-    if(OP_kernels[kernel_index].count==0)
-    	OP_kernels[kernel_index].name     = name;
-    OP_kernels[kernel_index].count    += 1;
-    OP_kernels[kernel_index].time     += wall_t2 - wall_t1;*/
+  op_timers(&cpu_t2, &wall_t2);
+  
+  int kernel_index = hash(name);
+  //printf("name: %s kernel_index: %d\n",name,kernel_index);;
+  op_timing_realloc(kernel_index);
+  if(OP_kernels[kernel_index].count==0)
+  OP_kernels[kernel_index].name     = name;
+  OP_kernels[kernel_index].count    += 1;
+  OP_kernels[kernel_index].time     += wall_t2 - wall_t1;
 }  

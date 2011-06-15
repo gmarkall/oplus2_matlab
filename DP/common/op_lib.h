@@ -201,6 +201,9 @@ void op_mpi_timing_output(int my_rank);
 extern "C"
 void gatherprint_tofile(op_dat dat, int rank, int comm_size, int g_size);
 
+extern "C"
+void reset_halo(op_set set, op_arg arg);
+
 
 //
 //mpi partitioning function prototypes

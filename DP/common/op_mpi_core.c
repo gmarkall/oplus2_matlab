@@ -1293,7 +1293,7 @@ int exchange_halo(op_set set, op_arg arg)
 	    
 	set_halo_list exp_exec_list = OP_export_sets_list[dat->set->index];
 	set_halo_list exp_nonexec_list = OP_export_nonexec_sets_list[dat->set->index];
-	    
+
 	//-------first exchange exec elements related to this data array--------
 	
 	//sanity checks
@@ -1455,6 +1455,35 @@ void global_reduce(op_arg *arg)
 	    MPI_Reduce((int *)arg->data,&result,1,MPI_INT, MPI_MIN,0, OP_MPI_WORLD);
 	    memcpy(arg->data, &result, sizeof(int));
 	}
+    }
+}
+
+// initialise import halo data to NaN - for diagnostics pourposes
+void reset_halo(op_set set, op_arg arg)
+{
+    op_dat dat = arg.dat;
+	
+    if((arg.idx != -1) && (arg.acc == OP_READ || arg.acc == OP_RW ) &&
+    	(dirtybit[dat->index] == 1))
+    {
+    	//printf("Resetting Halo of data array %10s\n",dat->name);
+	set_halo_list imp_exec_list = OP_import_sets_list[dat->set->index];
+	set_halo_list imp_nonexec_list = OP_import_nonexec_sets_list[dat->set->index];
+	    
+	// initialise import halo data to NaN
+	int double_count = imp_exec_list->size*dat->size/sizeof(double);
+	double_count +=  imp_nonexec_list->size*dat->size/sizeof(double);
+	double* NaN = (double *)xmalloc(double_count* sizeof(double));
+	for(int i = 0; i<double_count; i++) NaN[i] = (double)NAN;//0.0/0.0;
+	
+	int init = dat->set->size*dat->size;
+	memcpy(&(OP_dat_list[dat->index]->data[init]), NaN, 
+	    dat->size*imp_exec_list->size + dat->size*imp_nonexec_list->size);
+	
+	//int nonexec_init = (dat->set->size+imp_exec_list->size)*dat->size;
+	//memcpy(&(OP_dat_list[dat->index]->data[nonexec_init]), 
+	 //   NaN, dat->size*imp_nonexec_list->size);
+	free(NaN);
     }
 }
 
