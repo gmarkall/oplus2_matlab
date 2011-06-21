@@ -27,7 +27,7 @@ PARMETISLIB 	:= $(PARMETIS_HOME)/libparmetis.a $(PARMETIS_HOME)/libmetis.a
 #CCFLAGS	:= -g -fPIC -DUNIX -Wall -Wextra
 #NVCCFLAGS	:= -g -G -arch=sm_20 -Xptxas=-v -use_fast_math
 
-CCFLAGS		:= -O2 -vec-report -xSSE2,SSE3,SSE4.1,SSE4.2 #-g  #-DDEBUG
+CCFLAGS		:= -O2 -vec-report -xSSE2,SSE3,SSE4.1,SSE4.2 -g #-DCOMM_PERF #-DDEBUG
 
 
 #NVCCFLAGS	:= -O3 -maxrregcount 48 -arch=sm_20 \

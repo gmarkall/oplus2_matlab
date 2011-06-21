@@ -418,14 +418,15 @@ int main(int argc, char **argv){
     op_timers(&cpu_t2, &wall_t2);
     
     //print each mpi process's timing info for each kernel
-    //op_mpi_timing_output(my_rank);
+    op_mpi_timing_output();
     
     //print total time for niter interations
     time = wall_t2-wall_t1;
     MPI_Reduce(&time,&max_time,1,MPI_DOUBLE, MPI_MAX,0, MPI_COMM_WORLD);
     if(my_rank==0)printf("Max total runtime = %f\n",max_time);
     
-    //gatherprint_tofile(p_q, my_rank, comm_size, g_ncell);//, ncell);
+    //gatherprint_tofile(p_q, my_rank, comm_size, g_ncell);
+    //gatherprint_bin_tofile(p_q, my_rank, comm_size, g_ncell);
     
     op_halo_destroy();  
     op_partition_destroy();

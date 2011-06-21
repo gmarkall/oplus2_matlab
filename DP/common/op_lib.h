@@ -196,10 +196,19 @@ extern "C"
 void global_reduce(op_arg* arg);
 
 extern "C"
-void op_mpi_timing_output(int my_rank);
+void op_mpi_timing_output();
+
+extern "C"
+int op_mpi_perf_time(const char* name, double time);
+
+extern "C"
+void op_mpi_perf_comm(int kernel_index, op_arg arg);
 
 extern "C"
 void gatherprint_tofile(op_dat dat, int rank, int comm_size, int g_size);
+
+extern "C"
+void gatherprint_bin_tofile(op_dat dat, int rank, int comm_size, int g_size);
 
 extern "C"
 void reset_halo(op_set set, op_arg arg);

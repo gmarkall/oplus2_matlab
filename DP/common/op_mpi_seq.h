@@ -1,7 +1,36 @@
-//                                                                        
-// header                                                                 
-//                                                                        
-                                                                         
+/*
+  Open source copyright declaration based on BSD open source template:
+  http://www.opensource.org/licenses/bsd-license.php
+
+* Copyright (c) 2009, Mike Giles
+* All rights reserved.
+*
+* Redistribution and use in source and binary forms, with or without
+* modification, are permitted provided that the following conditions are met:
+*     * Redistributions of source code must retain the above copyright
+*       notice, this list of conditions and the following disclaimer.
+*     * Redistributions in binary form must reproduce the above copyright
+*       notice, this list of conditions and the following disclaimer in the
+*       documentation and/or other materials provided with the distribution.
+*     * The name of Mike Giles may not be used to endorse or promote products
+*       derived from this software without specific prior written permission.
+*
+* THIS SOFTWARE IS PROVIDED BY Mike Giles ''AS IS'' AND ANY
+* EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
+* WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+* DISCLAIMED. IN NO EVENT SHALL Mike Giles BE LIABLE FOR ANY
+* DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES
+* (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;
+* LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND
+* ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
+* (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
+* SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+*/
+
+
+/* 
+ * written by: Gihan R. Mudalige, 10-06-2011
+ */                                                                      
                                                 
                                                                           
 void op_arg_set(int n, op_arg arg, char **p_arg){                         
@@ -31,14 +60,7 @@ op_arg* blank_arg(op_arg *arg)
     
 }
 
-#define HASHSIZE  50 
-unsigned hash(const char *s)
-{
-    unsigned hashval;
-    for (hashval = 0; *s != '\0'; s++)
-    	hashval = *s + 31 * hashval;
-    return hashval % HASHSIZE;
-}
+
 
 
 //                                                                        
@@ -138,15 +160,13 @@ void op_par_loop(void (*kernel)( T0*, T1* ),
       global_reduce(&arg1);
   
   //update timer record
-    op_timers(&cpu_t2, &wall_t2);
-    
-    int kernel_index = hash(name);  
-    //printf("name: %s kernel_index: %d\n",name,kernel_index);;
-    op_timing_realloc(kernel_index);
-    if(OP_kernels[kernel_index].count==0)
-    	OP_kernels[kernel_index].name     = name;
-    OP_kernels[kernel_index].count    += 1;
-    OP_kernels[kernel_index].time     += wall_t2 - wall_t1;
+  op_timers(&cpu_t2, &wall_t2);
+  int k_i = op_mpi_perf_time(name, wall_t2 - wall_t1);
+  #if COMM_PERF
+  if(sent[0] == 1)op_mpi_perf_comm(k_i, arg0);
+  if(sent[1] == 1)op_mpi_perf_comm(k_i, arg1);
+  #endif
+  
 }  
 
 
@@ -286,14 +306,14 @@ void op_par_loop(void (*kernel)( T0*, T1*, T2*, T3*,
   
   //update timer record
   op_timers(&cpu_t2, &wall_t2);
-  
-  int kernel_index = hash(name);  
-  //printf("name: %s kernel_index: %d\n",name,kernel_index);;
-  op_timing_realloc(kernel_index);
-  if(OP_kernels[kernel_index].count==0)
-      OP_kernels[kernel_index].name     = name;
-  OP_kernels[kernel_index].count    += 1;
-  OP_kernels[kernel_index].time     += wall_t2 - wall_t1;
+  int k_i = op_mpi_perf_time(name, wall_t2 - wall_t1);
+  #if COMM_PERF
+  if(sent[0] == 1)op_mpi_perf_comm(k_i, arg0);
+  if(sent[1] == 1)op_mpi_perf_comm(k_i, arg1);
+  if(sent[2] == 1)op_mpi_perf_comm(k_i, arg2);
+  if(sent[3] == 1)op_mpi_perf_comm(k_i, arg3);
+  if(sent[4] == 1)op_mpi_perf_comm(k_i, arg4);
+  #endif
 }  
 
 
@@ -444,15 +464,18 @@ void op_par_loop(void (*kernel)( T0*, T1*, T2*, T3*,
       global_reduce(&arg5);
   
   //update timer record
-    op_timers(&cpu_t2, &wall_t2);
-    
-    int kernel_index = hash(name);
-    //printf("name: %s kernel_index: %d\n",name,kernel_index);;
-    op_timing_realloc(kernel_index);
-    if(OP_kernels[kernel_index].count==0)
-    	OP_kernels[kernel_index].name     = name;
-    OP_kernels[kernel_index].count    += 1;
-    OP_kernels[kernel_index].time     += wall_t2 - wall_t1;
+  op_timers(&cpu_t2, &wall_t2);
+  
+  //update performance records
+  int k_i = op_mpi_perf_time(name, wall_t2 - wall_t1);
+  #if COMM_PERF
+  if(sent[0] == 1)op_mpi_perf_comm(k_i, arg0);
+  if(sent[1] == 1)op_mpi_perf_comm(k_i, arg1);
+  if(sent[2] == 1)op_mpi_perf_comm(k_i, arg2);
+  if(sent[3] == 1)op_mpi_perf_comm(k_i, arg3);
+  if(sent[4] == 1)op_mpi_perf_comm(k_i, arg4);
+  if(sent[5] == 1)op_mpi_perf_comm(k_i, arg5);
+  #endif
 }  
 
 
@@ -630,11 +653,18 @@ void op_par_loop(void (*kernel)( T0*, T1*, T2*, T3*,
   //update timer record
   op_timers(&cpu_t2, &wall_t2);
   
-  int kernel_index = hash(name);
-  //printf("name: %s kernel_index: %d\n",name,kernel_index);;
-  op_timing_realloc(kernel_index);
-  if(OP_kernels[kernel_index].count==0)
-  OP_kernels[kernel_index].name     = name;
-  OP_kernels[kernel_index].count    += 1;
-  OP_kernels[kernel_index].time     += wall_t2 - wall_t1;
+  //update performance records
+  int k_i = op_mpi_perf_time(name, wall_t2 - wall_t1);
+  #if COMM_PERF
+  if(sent[0] == 1)op_mpi_perf_comm(k_i, arg0);
+  if(sent[1] == 1)op_mpi_perf_comm(k_i, arg1);
+  if(sent[2] == 1)op_mpi_perf_comm(k_i, arg2);
+  if(sent[3] == 1)op_mpi_perf_comm(k_i, arg3);
+  if(sent[4] == 1)op_mpi_perf_comm(k_i, arg4);
+  if(sent[5] == 1)op_mpi_perf_comm(k_i, arg5);
+  if(sent[6] == 1)op_mpi_perf_comm(k_i, arg6);
+  if(sent[7] == 1)op_mpi_perf_comm(k_i, arg7);
+  #endif
+  
+
 }  

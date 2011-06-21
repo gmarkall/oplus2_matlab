@@ -60,3 +60,14 @@ typedef struct {
 typedef set_halo_list_core* set_halo_list;
 
 
+typedef struct {
+  char const *name;   // name of kernel 
+  double time; //total time spent in this kernel (compute+comm)
+  int  count; //number of times this kernel is called
+  int* op_dat_indices;  //array to hold op_dat index of each op_dat used in MPI halo exports for this kernel
+  int  num_indices; //number of op_dat indices
+  int* tot_count;  //total number of times this op_dat was halo exported within this kernel
+  int* tot_bytes; //total number of bytes halo exported for this op_dat in this kernel
+  
+} op_mpi_kernel;
+

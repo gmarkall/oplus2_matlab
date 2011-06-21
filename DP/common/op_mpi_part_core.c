@@ -1282,7 +1282,7 @@ void op_partition_geom(op_dat coords, int g_nnode) //uses ParMETIS_V3_PartGeom()
     MPI_Comm_rank(OP_PART_WORLD, &my_rank);
     MPI_Comm_size(OP_PART_WORLD, &comm_size);
 
-/*--STEP 0 - initialise partitioning data stauctures with the current block 
+/*--STEP 0 - initialise partitioning data stauctures with the current (block) 
     partitioning information */
     
     // Compute global partition range information for each set

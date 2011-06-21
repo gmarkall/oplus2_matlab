@@ -3,7 +3,7 @@ MPI_HOME	:= /home/gihan/openmpi
 
 CC		:=$(MPI_HOME)/bin/mpicc 
 CXX		:=$(MPI_HOME)/bin/mpiCC
-CCFLAGS		:= -O2  -vec-report -xSSE2,SSE3,SSE4.1,SSE4.2  #-g #-DDEBUG
+CCFLAGS		:= -O2  -vec-report -xSSE2,SSE3,SSE4.1,SSE4.2  -g #-DCOMM_PERF #-DDEBUG
 
 
 #
@@ -11,7 +11,7 @@ CCFLAGS		:= -O2  -vec-report -xSSE2,SSE3,SSE4.1,SSE4.2  #-g #-DDEBUG
 #
 PARMETIS_HOME	:= /home/gihan/ParMetis-3.1.1
 PARMETISLIB 	:= $(PARMETIS_HOME)/libparmetis.a $(PARMETIS_HOME)/libmetis.a
-INC		:= $(INC) -I$(PARMETIS_HOME)
+INC		:= $(INC) -I$(PARMETIS_HOME)  
 
 
 #
