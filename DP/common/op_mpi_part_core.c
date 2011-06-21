@@ -35,7 +35,6 @@
 //parmetis header
 #include <parmetis.h>
 
-#include "op_mpi_part_core.h"
 
 //
 //MPI Communicator for partitioning
