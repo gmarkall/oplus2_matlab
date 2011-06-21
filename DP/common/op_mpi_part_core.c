@@ -43,25 +43,7 @@
 MPI_Comm OP_PART_WORLD;
 
 
-/**----------------MPI partitioning related global variables ----------------**/
-part* OP_part_list;
-part* OP_part_list_original; 
 
-
-/**----------------MPI partitioning related utility functions ---------------**/
-
-//declare partition information for a given set 
-void decl_partition(op_set set, int* g_index, int* partition)
-{
-    
-  part p = (part) xmalloc(sizeof(part_core));
-  p->set = set;
-  p->g_index = g_index;
-  p->elem_part = partition;
-  p->is_partitioned = 0;
-  OP_part_list[set->index] = p;
-  
-}
 
 int frequencyof(int value, int* array, int size)
 {
@@ -1060,22 +1042,8 @@ void partition_all(op_set primary_set, int my_rank, int comm_size)
     	    quickSort(OP_part_list[set->index]->g_index, 0, set->size-1);
     }
   
-
-/*--STEP 5 - Save old Partitioning Information -------------------------------*/
-	     
-    //allocate memory for old list
-    OP_part_list_original = (part *)xmalloc(OP_set_index*sizeof(part));
-    for(int s=0; s<OP_set_index; s++) { //for each set
-    	op_set set=OP_set_list[s];
-    	
-    	part p = (part) xmalloc(sizeof(part_core));
-    	p->g_index = OP_part_list[set->index]->g_index;
-    	    	
-    	OP_part_list_original[set->index] = p;    	
-    }
-
     
-/*--STEP 6 - Renumber mapping table entries with new partition's indexes------*/
+/*--STEP 5 - Renumber mapping table entries with new partition's indexes------*/
 
     //update partition rage information 
     for(int i = 0; i<OP_set_index; i++)free(part_range[i]);
@@ -1246,12 +1214,9 @@ void partition_all(op_set primary_set, int my_rank, int comm_size)
     
     
     //cleanup
-    //destroy OP_part_list[], pe_list, pi_list    
+    //destroy pe_list, pi_list    
     for(int s=0; s<OP_set_index; s++) { //for each set
       op_set set=OP_set_list[s];
-      OP_part_list[set->index]->g_index = NULL;
-      free(OP_part_list[set->index]->elem_part);
-      
       free(pe_list[set->index]->ranks);free(pe_list[set->index]->disps);
       free(pe_list[set->index]->sizes);free(pe_list[set->index]->list);
       
@@ -1376,12 +1341,3 @@ void op_partition_geomkway(op_dat coords, int g_nnode, op_map primary_map){}
 void op_partition_reverse(){}
 
 
-//destroy OP_part_list[]    
-void op_partition_destroy()
-{
-    for(int s=0; s<OP_set_index; s++) { //for each set
-      op_set set=OP_set_list[s];
-      free(OP_part_list_original[set->index]->g_index);
-      //free(OP_part_list_original[set->index]->elem_part);
-    }     
-}

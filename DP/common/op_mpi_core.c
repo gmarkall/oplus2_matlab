@@ -46,7 +46,7 @@
 //
 MPI_Comm OP_MPI_WORLD;
 
-/**-----------------------MPI related global variables ----------------------**/
+/**---------------------MPI Halo related global variables -------------------**/
 
 map_halo_list* OP_export_maps_list; 
 set_halo_list* OP_export_sets_list; 
@@ -60,6 +60,7 @@ set_halo_list* OP_export_nonexec_sets_list;
 //global array to hold dirty_bits for op_dats
 int* dirtybit;
 
+//buffer struct used in for non-blocking mpi halo sends/receives
 typedef struct {
  int	     dat_index; //index of the op_dat to which this buffer belongs
  char	     *buf_exec;//buffer holding exec halo to be exported;
@@ -67,11 +68,14 @@ typedef struct {
  MPI_Request *s_req;//pointed to hold the MPI_Reqest for sends
  MPI_Request *r_req;//pointed to hold the MPI_Reqest for receives
  int	     s_num_req;//number of send MPI_Reqests in flight at a given time for this dat_index;
- int	     r_num_req;//number of receive MPI_Reqests in flight at a given time for this dat_index;
- 
+ int	     r_num_req;//number of receive MPI_Reqests in flight at a given time for this dat_index; 
 } op_mpi_buffer_core;
 
 typedef op_mpi_buffer_core* op_mpi_buffer;
+
+//halo exchange buffers for each op_dat 
+op_mpi_buffer* OP_mpi_buffer_list;
+
 
 //array to holding the index of the final element that can be computed on without
 //halo exchanges for each set
@@ -79,17 +83,31 @@ typedef op_mpi_buffer_core* op_mpi_buffer;
 //owned_num[set->index] to n<set->size - halo exchange needed to be completed
 int* owned_num;
 
-//halo exchange buffers for each op_dat 
-op_mpi_buffer* OP_mpi_buffer_list;
-
 //table holding MPI performance of each loop (accessed via a hash of loop name) 
 #define HASHSIZE 50
 op_mpi_kernel op_mpi_kernel_tab[HASHSIZE];
 
 
+//global variables to hold partition information on an MPI rank
+int OP_part_index = 0;
+part* OP_part_list;
 
-/**-----------------------MPI related utility functions ---------------------**/
 
+/**-------------------------MPI halo utility functions ----------------------**/
+
+//declare partition information for a given set 
+void decl_partition(op_set set, int* g_index, int* partition)
+{    
+  part p = (part) xmalloc(sizeof(part_core));
+  p->set = set;
+  p->g_index = g_index;
+  p->elem_part = partition;
+  p->is_partitioned = 0;
+  OP_part_list[set->index] = p;
+  OP_part_index++;	  
+}
+
+//get partition range on all mpi ranks for all sets
 void get_part_range(int** part_range, int my_rank, int comm_size, MPI_Comm Comm)
 {
     for(int s=0; s<OP_set_index; s++) {
@@ -1125,8 +1143,7 @@ void op_halo_create()
     	    	    else nonexec->list[i] = count + index;
     	    	}
     	    	else nonexec->list[i] = index;    	    	    
-   	    }       	    
-    	    
+   	    }       	        	    
     	}
     	else 
     	{
@@ -1170,14 +1187,66 @@ void op_halo_create()
     	}
     }
     
-    //update OP_part_list_original -- this array needs to be inuse before we chan do this
-    /*if(OP_part_list_original == NULL) printf("Empty OP_part_list_original\n");
-    for(int s = 0; s< OP_set_index; s++){
-    	op_set set=OP_set_list[s];
-    	
-    }*/
+/*-STEP 9 --------- Keep track of the original element indexes----------------*/   
+    
+    //
+    //update OP_part_list 
+    //
+    if(OP_part_index != OP_set_index) //OP_part_list empty, (i.e. no previous partitioning done)
+    //create it and store the seperation of elements using owned_elems and exp_elems
+    {
+    	//allocate memory for list
+    	OP_part_list = (part *)xmalloc(OP_set_index*sizeof(part));
+    
+    	for(int s=0; s<OP_set_index; s++) { //for each set
+    	    op_set set=OP_set_list[s];
+    	    //printf("set %s size = %d\n", set.name, set.size);
+    	    int *g_index = (int *)xmalloc(sizeof(int)*set->size);
+    	    for(int i = 0; i< set->size; i++)
+    	    	g_index[i] = get_global_index(i,my_rank, part_range[set->index],comm_size);
+    	    decl_partition(set, g_index, NULL); 
+    	    
+    	    //combine owned_elems and exp_elems to one memory block
+    	    int* temp = (int *)xmalloc(sizeof(int)*set->size);
+    	    memcpy(&temp[0], owned_elems[set->index], 
+    	    	owned_num[set->index]*sizeof(int));
+    	    memcpy(&temp[owned_num[set->index]], exp_elems[set->index], 
+    	    	(set->size-owned_num[set->index])*sizeof(int));
+    	    
+    	    //update OP_part_list[set->index]->g_index
+    	    for(int i = 0; i<set->size; i++)
+    	    {
+    	    	temp[i] = OP_part_list[set->index]->g_index[temp[i]];	
+    	    }
+    	    free(OP_part_list[set->index]->g_index);
+    	    OP_part_list[set->index]->g_index = temp;    	    
+    	}
+    }
+    else //OP_part_list exists (i.e. a partitioning has been done)
+    	 //update the seperation of elements  
+    {
+    	for(int s=0; s<OP_set_index; s++) { //for each set
+    	    op_set set=OP_set_list[s];
+    	//combine owned_elems and exp_elems to one memory block
+    	    int* temp = (int *)xmalloc(sizeof(int)*set->size);
+    	    memcpy(&temp[0], owned_elems[set->index], 
+    	    	owned_num[set->index]*sizeof(int));
+    	    memcpy(&temp[owned_num[set->index]], exp_elems[set->index], 
+    	    	(set->size-owned_num[set->index])*sizeof(int));
+    	    
+    	    //update OP_part_list[set->index]->g_index
+    	    for(int i = 0; i<set->size; i++)
+    	    {
+    	    	temp[i] = OP_part_list[set->index]->g_index[temp[i]];	
+    	    }
+    	    free(OP_part_list[set->index]->g_index);
+    	    OP_part_list[set->index]->g_index = temp; 
+    	}
+    }
+
+    
+/*-STEP 10 ---------- Clean up and Compute rough halo size numbers------------*/       
    	  
-    //cleanup
     for(int i = 0; i<OP_set_index; i++)
     {	free(part_range[i]);
     	free(owned_elems[i]); free(exp_elems[i]);
@@ -1187,8 +1256,7 @@ void op_halo_create()
     op_timers(&cpu_t2, &wall_t2);  //timer stop for list create    
     //compute import/export lists creation time
     time = wall_t2-wall_t1;
-    MPI_Reduce(&time,&max_time,1,MPI_DOUBLE, MPI_MAX,0, OP_MPI_WORLD);
-    
+    MPI_Reduce(&time,&max_time,1,MPI_DOUBLE, MPI_MAX,0, OP_MPI_WORLD);    
     
     //compute average halo size in Bytes
     int tot_halo_size = 0;
@@ -1291,6 +1359,13 @@ void op_halo_destroy()
     	free(op_mpi_kernel_tab[n].tot_bytes);
     }
     #endif
+    
+    //destroy OP_part_list[]
+    for(int s=0; s<OP_set_index; s++) { //for each set
+    	op_set set=OP_set_list[s];
+    	free(OP_part_list[set->index]->g_index);
+    	free(OP_part_list[set->index]->elem_part);
+    } 
     
     MPI_Comm_free(&OP_MPI_WORLD); 
 }
@@ -1502,10 +1577,6 @@ void reset_halo(op_set set, op_arg arg)
 	int init = dat->set->size*dat->size;
 	memcpy(&(OP_dat_list[dat->index]->data[init]), NaN, 
 	    dat->size*imp_exec_list->size + dat->size*imp_nonexec_list->size);
-	
-	//int nonexec_init = (dat->set->size+imp_exec_list->size)*dat->size;
-	//memcpy(&(OP_dat_list[dat->index]->data[nonexec_init]), 
-	 //   NaN, dat->size*imp_nonexec_list->size);
 	free(NaN);
     }
 }
@@ -1533,7 +1604,7 @@ void op_mpi_timing_output()
     for (int n=0; n<HASHSIZE; n++) {
       if (op_mpi_kernel_tab[n].count>0) {
       	  printf("-----------------------------------\n");
-      	  printf("Kernel name   :  %10s\n",op_mpi_kernel_tab[n].name);
+      	  printf("Kernel        :  %10s\n",op_mpi_kernel_tab[n].name);
       	  printf("Count         :  %10.4d  \n", op_mpi_kernel_tab[n].count);
           printf("tot_time(sec) :  %10.4f  \n", op_mpi_kernel_tab[n].time); 
           printf("avg_time(sec) :  %10.4f  \n", 
@@ -1568,7 +1639,7 @@ void op_mpi_timing_output()
     
     if(my_rank == 0)
     {
-    	printf(" Kernel name  Count   Max time(sec)   Avg time(sec)  \n");
+    	printf("Kernel        Count   Max time(sec)   Avg time(sec)  \n");
     }
     for (int n=0; n<HASHSIZE; n++) {
     	MPI_Reduce(&op_mpi_kernel_tab[n].count,&count,1,MPI_INT, MPI_MAX,0, OP_MPI_WORLD);
@@ -1577,19 +1648,14 @@ void op_mpi_timing_output()
    	
     	if(my_rank == 0 && count > 0)
     	{
-    	    printf("%10s  %6d       %10.4f      %10.4f    \n",
+    	    printf("%-10s  %6d       %10.4f      %10.4f    \n",
     	    	op_mpi_kernel_tab[n].name,
     	    	count,
     	    	tot_time,
     	    	(avg_time)/comm_size);
     	}
     	tot_time = avg_time = 0.0;
-    }
-    
-
-
-    
-    
+    }    
 }
 
 
@@ -1678,12 +1744,9 @@ void op_mpi_perf_comm(int kernel_index, op_arg arg)
     	else
     	{
     	    op_mpi_kernel_tab[kernel_index].tot_count[index] += 1;
-    	    op_mpi_kernel_tab[kernel_index].tot_bytes[index] += tot_halo_size;
-    	    
-    	}
-    	
-    }
-    
+    	    op_mpi_kernel_tab[kernel_index].tot_bytes[index] += tot_halo_size;    	    
+    	}    	
+    }    
 }
 
 

@@ -429,7 +429,7 @@ int main(int argc, char **argv){
     //gatherprint_bin_tofile(p_q, my_rank, comm_size, g_ncell);
     
     op_halo_destroy();  
-    op_partition_destroy();
+    
     MPI_Finalize();   //user mpi finalize
 
 }

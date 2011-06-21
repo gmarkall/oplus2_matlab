@@ -33,7 +33,7 @@
  */
 
 
-/**-----------------------MPI Related Data Types-----------------------------**/
+/**-----------------------MPI halo Data Types-----------------------------**/
 typedef struct {
  op_map	      map; //mapping table thats related to this list
  int 	      size; //total size of this list
@@ -60,6 +60,22 @@ typedef struct {
 typedef set_halo_list_core* set_halo_list;
 
 
+/**-------------------Data structures related to partitioning----------------**/
+
+//struct to hold the partition information for each set
+typedef struct
+{
+  op_set set; //set to which this partition information blongs to 
+  int* g_index; //global index of each element held in this MPI process
+  int* elem_part; //partition to which each element belongs
+  int is_partitioned; //indicates if this set is partitioned 1 if partitioned 0 if not
+} part_core;
+
+typedef part_core* part;
+
+
+
+/**-----------------Data Type to hold MPI performance measures---------------**/
 typedef struct {
   char const *name;   // name of kernel 
   double time; //total time spent in this kernel (compute+comm)

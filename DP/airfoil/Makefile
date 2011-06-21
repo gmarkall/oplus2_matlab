@@ -37,8 +37,7 @@ NVCCFLAGS	:= -O3 -arch=sm_20 \
 LIBS		:= $(LIB) -lcudart 
 OMP		:= -openmp -openmp-report2
 OP2_H		:= $(OP2)/op_seq.h $(OP2)/op_mpi_seq.h $(OP2)/op_lib.h \
-			$(OP2)/op_lib_core.h $(OP2)/op_mpi_core.h \
-			$(OP2)/op_mpi_part_core.h
+			$(OP2)/op_lib_core.h $(OP2)/op_mpi_core.h 
 OP2_LIB		:= $(OP2)/op_lib.a $(PARMETISLIB)
 
 

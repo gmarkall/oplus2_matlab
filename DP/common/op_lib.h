@@ -34,7 +34,7 @@
 
 #include "op_lib_core.h"
 #include "op_mpi_core.h"
-#include "op_mpi_part_core.h"
+
 
 #ifdef _OPENMP
 #include <omp.h>
@@ -229,8 +229,6 @@ void op_partition_geomkway(op_dat coords, int g_nnode, op_map primary_map);
 extern "C"
 void op_partition_reverse();
 
-extern "C"
-void op_partition_destroy();
 
 
 //

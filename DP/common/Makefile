@@ -25,7 +25,7 @@ all:		op_lib_core.o op_lib.o op_lib.a
 #
 
 op_lib_core.o:	op_lib_core.c op_lib_core.h op_mpi_core.c op_mpi_core.h \
-		$(PARMETIS_LIB) op_mpi_part_core.c op_mpi_part_core.h mpi_util.c
+		$(PARMETIS_LIB) op_mpi_part_core.c mpi_util.c
 		$(CC) $(CCFLAGS) $(INC) -std=c99 -c op_lib_core.c 
 		
 
