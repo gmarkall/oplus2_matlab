@@ -36,13 +36,16 @@
 #include <parmetis.h>
 
 
+
 //
 //MPI Communicator for partitioning
 //
 MPI_Comm OP_PART_WORLD;
 
-
-
+//
+//Save original partition ranges
+//
+int** orig_part_range;
 
 int frequencyof(int value, int* array, int size)
 {
@@ -73,8 +76,7 @@ int compare_all_sets(op_set target_set, op_set other_sets[], int size)
 {
     for(int i = 0; i < size; i++)
     {
-    	//printf("comparing set %s with set %s\n",target_set.name, other_sets[i].name);
- 	if(compare_sets(target_set, other_sets[i])==1)return i;
+    	if(compare_sets(target_set, other_sets[i])==1)return i;
     }    
     return -1;
 }
@@ -192,14 +194,6 @@ int* create_exp_list_2(op_set set, int* temp_list, set_halo_list halo_list,
     halo_list->list = to_list;
     
     return part_list;
-    
-    /*for(int i=0; i < halo_list->ranks_size; i++) {
-        for(int j = 0; j<halo_list->sizes[i]; j++)
-        {
-            printf(" %d",part_list[halo_list->disps[i]]);         	   
-        }
-        printf("\n");
-    }*/
 }
 
 /**special routine to create import list during partitioning map->to set 
@@ -375,10 +369,7 @@ int partition_from_set(op_map map, int my_rank, int comm_size, int** part_range)
     	}
 	partition[i] = find_mode(found_parts, map->dim);     	
     }
-            
-    
-    
-    
+               
     OP_part_list[map->from->index]->elem_part = partition;
     OP_part_list[map->from->index]->is_partitioned = 1;
     
@@ -402,7 +393,8 @@ int partition_to_set(op_map map, int my_rank, int comm_size, int** part_range)
     int* temp_list = (int *)xmalloc(cap*sizeof(int));
 
     set_halo_list pe_list = (set_halo_list) xmalloc(sizeof(set_halo_list_core));
-    int* part_list_e = NULL; //corresponding "to" element's partition infomation exported to an mpi rank
+    int* part_list_e = NULL; //corresponding "to" element's partition infomation 
+                             //exported to an mpi rank
         
     //go through the map and if any element pointed to by a mapping table entry
     //(i.e. a "from" set element) is in a foreign partition, add the partition
@@ -451,7 +443,8 @@ int partition_to_set(op_map map, int my_rank, int comm_size, int** part_range)
     
     //to_part_list tpi_list;
     set_halo_list pi_list = (set_halo_list) xmalloc(sizeof(set_halo_list_core));
-    int* part_list_i = NULL; //corresponding "to" element's partition infomation imported from an mpi rank
+    int* part_list_i = NULL; //corresponding "to" element's partition infomation 
+                             //imported from an mpi rank
     
     find_neighbors_set(pe_list,neighbors,sizes,&ranks_size,my_rank, 
     	comm_size, OP_PART_WORLD);
@@ -579,12 +572,9 @@ int partition_to_set(op_map map, int my_rank, int comm_size, int** part_range)
 
 
 
-/**--------------Partition all secondary sets and data migration-------------**/   
+/**-------- Partition Secondary sets using primary set partition -------------*/
 void partition_all(op_set primary_set, int my_rank, int comm_size)
-{
-    
-/*--STEP 1 - Partition Secondary sets using primary set partition ------------*/
-    
+{   
     // Compute global partition range information for each set
     int** part_range = (int **)xmalloc(OP_set_index*sizeof(int*));
     get_part_range(part_range,my_rank,comm_size, OP_PART_WORLD);
@@ -690,9 +680,357 @@ void partition_all(op_set primary_set, int my_rank, int comm_size)
     	    exit(1);
     	}
     }
-
-/*--STEP 2 - Create Imp/Export Lists for Migrating elements to new partitions-*/
     
+    for(int i = 0; i<OP_set_index; i++)free(part_range[i]);free(part_range);
+}
+
+/**------- Renumber mapping table entries with new partition's indexes -------*/
+void renumber_maps(int my_rank, int comm_size)
+{
+    //get partition rage information 
+    int** part_range = (int **)xmalloc(OP_set_index*sizeof(int*));
+    get_part_range(part_range,my_rank,comm_size, OP_PART_WORLD);
+
+    //find elements of the "to" set thats not in this local process
+    for(int m=0; m<OP_map_index; m++) { //for each maping table
+    	op_map map=OP_map_list[m];
+      	  
+      	int cap = 1000; int count = 0;
+      	int* req_list = (int *)xmalloc(cap*sizeof(int));
+   	    	    
+      	for(int i = 0; i< map->from->size; i++)
+      	{
+      	    int local_index;//, global_index;
+      	    for(int j=0; j<map->dim; j++)
+      	    {
+      	    	local_index = binary_search(OP_part_list[map->to->index]->g_index,
+      	    	    map->map[i*map->dim+j], 0, map->to->size-1);
+      	    	
+      	    	if(count>=cap)
+      	    	{
+      	      	    cap = cap*2;
+      	      	    req_list = (int *)xrealloc(req_list, cap*sizeof(int));
+      	      	}
+      	      	  
+      	      	if(local_index < 0) // not in this partition
+      	      	{
+      	      	    //store the global index of the element
+      	      	    req_list[count++] = map->map[i*map->dim+j]; 
+      	      	}
+      	    }
+      	}
+      	//sort and remove duplicates
+      	if(count > 0)
+      	{
+      	    quickSort(req_list, 0, count-1);
+      	    count = removeDups(req_list, count);
+      	    req_list = (int *)xrealloc(req_list, count*sizeof(int));
+      	}
+      	  
+      	//do an allgather to findout how many elements that each process will 
+      	//be requesting partition information about
+      	int recv_count[comm_size];
+      	MPI_Allgather(&count, 1, MPI_INT, recv_count, 1, MPI_INT, OP_PART_WORLD);
+      	  
+      	//discover global size of these required elements
+      	int g_count = 0;
+      	for(int i = 0; i< comm_size; i++)g_count += recv_count[i];
+      	  
+      	//prepare for an allgatherv
+      	int disp = 0;
+      	int* displs = (int *)xmalloc(comm_size*sizeof(int));
+      	for(int i = 0; i<comm_size; i++)
+      	{
+      	    displs[i] =   disp;
+      	    disp = disp + recv_count[i];
+      	}
+      	  
+      	//allocate memory to hold the global indexes of elements requiring partition details
+      	int *g_index = (int *)xmalloc(sizeof(int)*g_count);
+      	  
+      	MPI_Allgatherv(req_list,count,MPI_INT, g_index,recv_count,displs,
+      	    MPI_INT, OP_PART_WORLD);
+      	free(req_list);
+      	  
+      	if(g_count > 0)
+      	{
+      	    quickSort(g_index, 0, g_count-1);
+      	    g_count = removeDups(g_index, g_count);
+      	    g_index = (int *)xrealloc(g_index, g_count*sizeof(int));
+      	}
+      	  
+      	//printf("on rank %d map %s needs set %s : before g_count = %d\n", 
+      	//    my_rank, map->name, map->to->name, g_count);
+      	  
+      	//go through the recieved global g_index array and see if any local element's
+      	//partition details are requested by some foreign process
+      	int *exp_index = (int *)xmalloc(sizeof(int)*g_count);
+      	int *exp_g_index = (int *)xmalloc(sizeof(int)*g_count);
+
+      	int exp_count = 0;
+      	for(int i = 0; i<g_count; i++)
+      	{
+      	    int local_index = binary_search(OP_part_list[map->to->index]->g_index,
+      	    	g_index[i],0,map->to->size-1);
+      	    int global_index;
+      	    if(local_index >= 0) 
+      	    {
+      	    	exp_g_index[exp_count] = g_index[i];
+      	      	
+      	    	global_index = get_global_index(local_index, my_rank,
+      	    	    part_range[map->to->index], comm_size);
+      	    	exp_index[exp_count++] = global_index;
+      	    }
+      	}
+      	free(g_index);
+      	
+      	//realloc exp_index, exp_g_index
+      	exp_index = (int *)xrealloc(exp_index,sizeof(int)*exp_count);
+      	exp_g_index = (int *)xrealloc(exp_g_index,sizeof(int)*exp_count);
+      	
+      	//now export to every MPI rank, these partition info with an all-to-all
+      	MPI_Allgather(&exp_count, 1, MPI_INT, recv_count, 1, MPI_INT, OP_PART_WORLD);
+      	disp = 0; free(displs);
+      	displs = (int *)xmalloc(comm_size*sizeof(int));
+      	
+      	for(int i = 0; i<comm_size; i++)
+      	{
+      	    displs[i] =   disp;
+      	    disp = disp + recv_count[i];
+      	}
+      	  
+      	//allocate memory to hold the incomming partition details and allgatherv  
+      	g_count = 0;
+      	for(int i = 0; i< comm_size; i++)g_count += recv_count[i];
+      	int *all_imp_index = (int *)xmalloc(sizeof(int)*g_count);
+      	g_index = (int *)xmalloc(sizeof(int)*g_count);
+      	  
+      	//printf("on rank %d map %s need set %s: After g_count = %d\n", 
+      	//    my_rank, map.name,map.to.name,g_count);
+      	  
+      	MPI_Allgatherv(exp_g_index,exp_count,MPI_INT, g_index,recv_count,displs, 
+      	    MPI_INT, OP_PART_WORLD);
+      	
+      	MPI_Allgatherv(exp_index,exp_count,MPI_INT, all_imp_index,recv_count,
+      	    displs, MPI_INT, OP_PART_WORLD);
+      	  
+      	//sort all_imp_index according to g_index array
+      	if(g_count > 0)quickSort_2(g_index, all_imp_index, 0, g_count-1); 
+      	  
+      	//now we hopefully have all the informattion required to renumber this map
+      	//so now, again go through each entry of this mapping table and renumber
+      	for(int i = 0; i< map->from->size; i++)
+      	{
+      	    int local_index, global_index;
+      	    for(int j=0; j < map->dim; j++)
+      	    {
+      	    	local_index = binary_search(OP_part_list[map->to->index]->g_index,
+      	    	    map->map[i*map->dim+j], 0, map->to->size-1);
+      	    	
+      	    	if(local_index < 0) // not in this partition
+      	      	{
+      	      	    //need to search through g_index array
+      	      	    int found = binary_search(g_index,map->map[i*map->dim+j],
+      	      	    	0, g_count-1);
+      	      	    if(found < 0) printf("Problem in renumbering\n");
+      	      	    else
+      	      	    {
+      	      	    	OP_map_list[map->index]-> map[i*map->dim+j] = 
+      	      	    	all_imp_index[found];
+      	      	    }
+      	      	}
+      	      	else //in this partition
+      	      	{
+      	      	    global_index = get_global_index(local_index, my_rank,
+      	      	    	part_range[map->to->index], comm_size);
+      	      	    OP_map_list[map->index]->map[i*map->dim+j] = global_index;
+      	      	}
+      	    }
+      	}
+      	free(exp_index);free(exp_g_index);
+      	free(g_index);
+      	free(displs);
+      	free(all_imp_index);
+    }         
+    for(int i = 0; i<OP_set_index; i++)free(part_range[i]);free(part_range);
+}
+
+void reverse_renumber_maps(int my_rank, int comm_size)
+{
+    int** part_range = (int **)xmalloc(OP_set_index*sizeof(int*));
+    get_part_range(part_range,my_rank,comm_size, OP_PART_WORLD);
+    
+/*--STEP 1 - Reverse the renumbering of mapping tables------------------------*/
+
+    //renumber mapping tables replacing the to_set elements of each mapping table
+    // with the original index of those set elements from g_index (will need all to alls)
+    for(int m=0; m<OP_map_index; m++) { //for each map
+    	op_map map=OP_map_list[m];
+    	
+    	int cap = 1000; int count = 0;
+      	int* req_list = (int *)xmalloc(cap*sizeof(int));
+      	
+    	for(int i = 0; i< map->from->size; i++)
+      	{
+      	    int part, local_index;
+      	    for(int j=0; j<map->dim; j++) { //for each element pointed at by this entry
+      	    	part = get_partition(map->map[i*map->dim+j],
+      	    	    part_range[map->to->index],&local_index,comm_size);    	    
+      	    
+      	    	if(count>=cap)
+      	    	{
+      	    	    cap = cap*2;
+      	    	    req_list = (int *)xrealloc(req_list, cap*sizeof(int));
+      	    	}
+      	    
+      	    	if(part != my_rank)
+      	    	{
+      	    	    //add current global index of this to_set 
+      	    	    //element to the request list 
+      	    	    req_list[count++] = map->map[i*map->dim+j];
+      	    	}
+      	    }
+      	}
+      	
+      	//sort and remove duplicates
+      	if(count > 0)
+      	{
+      	    quickSort(req_list, 0, count-1);
+      	    count = removeDups(req_list, count);
+      	    req_list = (int *)xrealloc(req_list, count*sizeof(int));      	    
+      	}
+      	
+      	//do an allgather to findout how many elements that each process will 
+      	//be requesting original global index information about
+      	int recv_count[comm_size];
+      	MPI_Allgather(&count, 1, MPI_INT, recv_count, 1, MPI_INT, OP_PART_WORLD);
+      	
+      	//discover global size of these required elements
+      	int g_count = 0;
+      	for(int i = 0; i< comm_size; i++)g_count += recv_count[i];
+      	  
+      	//prepare for an allgatherv
+      	int disp = 0;
+      	int* displs = (int *)xmalloc(comm_size*sizeof(int));
+      	for(int i = 0; i<comm_size; i++)
+      	{
+      	    displs[i] =   disp;
+      	    disp = disp + recv_count[i];
+      	}
+      	  
+      	//allocate memory to hold the global indexes of elements requiring partition details
+      	int *g_index = (int *)xmalloc(sizeof(int)*g_count);
+      	
+      	MPI_Allgatherv(req_list,count,MPI_INT, g_index,recv_count,displs,
+      	    MPI_INT, OP_PART_WORLD);
+      	free(req_list);
+      	  
+      	if(g_count > 0)
+      	{
+      	    quickSort(g_index, 0, g_count-1);
+      	    g_count = removeDups(g_index, g_count);
+      	    g_index = (int *)xrealloc(g_index, g_count*sizeof(int));
+      	}
+      	
+      	//go through the recieved global g_index array and see if any local element's
+      	//original global index details are requested by some foreign process
+      	int *curr_index = (int *)xmalloc(sizeof(int)*g_count);
+      	int *orig_index = (int *)xmalloc(sizeof(int)*g_count);
+      	
+      	int exp_count = 0;
+      	for(int i = 0; i<g_count; i++)
+      	{
+      	    int local_index, part; 
+      	    
+      	    part = get_partition(g_index[i], part_range[map->to->index],
+      	    	&local_index,comm_size);
+
+      	    if(part == my_rank)
+      	    {
+      	    	orig_index[exp_count] = 
+      	    	OP_part_list[map->to->index]->g_index[local_index];
+      	    	curr_index[exp_count++] = g_index[i];
+      	    }
+      	    
+      	}
+      	free(g_index);
+      	
+      	//realloc cur_index, org_index
+      	curr_index = (int *)xrealloc(curr_index,sizeof(int)*exp_count);
+      	orig_index = (int *)xrealloc(orig_index,sizeof(int)*exp_count);
+      	
+      	//now export to every MPI rank, these original global index info with an all-to-all
+      	MPI_Allgather(&exp_count, 1, MPI_INT, recv_count, 1, MPI_INT, OP_PART_WORLD);
+      	disp = 0; free(displs);
+      	displs = (int *)xmalloc(comm_size*sizeof(int));
+      	
+      	for(int i = 0; i<comm_size; i++)
+      	{
+      	    displs[i] =   disp;
+      	    disp = disp + recv_count[i];
+      	}
+      	
+      	//allocate memory to hold the incomming original global index details and allgatherv  
+      	g_count = 0;
+      	for(int i = 0; i< comm_size; i++)g_count += recv_count[i];
+      	int *all_orig_index = (int *)xmalloc(sizeof(int)*g_count);
+      	int *all_curr_index = (int *)xmalloc(sizeof(int)*g_count);
+      	  
+      	//printf("on rank %d map %s need set %s: After g_count = %d\n", 
+      	//    my_rank, map.name,map.to.name,g_count);
+      	  
+      	MPI_Allgatherv(curr_index,exp_count,MPI_INT, all_curr_index,recv_count,displs, 
+      	    MPI_INT, OP_PART_WORLD);
+      	
+      	MPI_Allgatherv(orig_index,exp_count,MPI_INT, all_orig_index,recv_count,
+      	    displs, MPI_INT, OP_PART_WORLD);
+      	
+      	//sort all_orig_index according to all_curr_index array
+      	if(g_count > 0)quickSort_2(all_curr_index, all_orig_index, 0, g_count-1); 
+      	
+      	//now we hopefully have all the informattion required to reverse the 
+      	//renumbering of this map. so now, again go through each entry of this 
+      	//mapping table and reverse-renumber
+      	for(int i = 0; i< map->from->size; i++)
+      	{
+      	    int part, local_index;
+      	    for(int j=0; j<map->dim; j++) { //for each element pointed at by this entry
+      	    	part = get_partition(map->map[i*map->dim+j],
+      	    	    part_range[map->to->index],&local_index,comm_size);    	    
+      	    
+      	    	if(part != my_rank)
+      	    	{
+      	    	    //find from all_curr_index and all_orig_index
+      	    	    local_index = binary_search(all_curr_index,
+      	    	    map->map[i*map->dim+j], 0, g_count-1);
+      	    	    if(local_index < 0) 
+      	    	    	printf("Problem in reverse-renumbering\n");
+      	    	    else
+      	    	    	OP_map_list[map->index]->map[i*map->dim+j] =
+	      	    	    all_orig_index[local_index];      	    	    
+      	    	}
+      	    	else
+      	    	{
+      	    	    OP_map_list[map->index]->map[i*map->dim+j] = 
+      	    	    OP_part_list[map->to->index]->g_index[local_index];
+      	    	}
+      	    }
+      	}
+      	
+      	free(all_curr_index);free(all_orig_index);
+      	free(curr_index);free(orig_index);
+      	free(displs);      	
+      	
+    }
+}
+
+
+/**------Data migration to new partitions (or reverse parition)---------------*/
+void migrate_all(int my_rank, int comm_size)
+{
+/*--STEP 1 - Create Imp/Export Lists for reverse migrating elements ----------*/
+
+    //create imp/exp lists for reverse migration     
     set_halo_list pe_list[OP_set_index]; //export list for each set 
     set_halo_list pi_list[OP_set_index]; //import list for each set
     
@@ -727,9 +1065,7 @@ void partition_all(op_set primary_set, int my_rank, int comm_size)
     	free(temp_list);      
     }
     
-    
     //create partition import lists
-   
     int *neighbors, *sizes;
     int ranks_size;
   
@@ -780,7 +1116,7 @@ void partition_all(op_set primary_set, int my_rank, int comm_size)
     }
     
 
-/*--STEP 3 - Perform Partitioning Data migration -----------------------------*/
+/*--STEP 2 - Perform Partitioning Data reverse migration ---------------------*/
 
     //data migration first ......  
     for(int s=0; s<OP_set_index; s++) { //for each set
@@ -871,10 +1207,7 @@ void partition_all(op_set primary_set, int my_rank, int comm_size)
     	    {
     	    	//prepare bits of the mapping tables to be exported
     	    	int** sbuf = (int **)xmalloc(exp->ranks_size*sizeof(int *));
-    	    	if(sbuf == NULL) {
-    	    	    printf(" partition_all -- error allocating memory: int** sbuf\n");
-    	    	    exit(-1);
-    	    	}
+
     	    	//send mapping table entirs to relevant mpi processes
     	    	for(int i=0; i<exp->ranks_size; i++) {
     	    	    sbuf[i] = (int *)xmalloc(exp->sizes[i]*map->dim*sizeof(int));
@@ -935,54 +1268,77 @@ void partition_all(op_set primary_set, int my_rank, int comm_size)
     	}
     }
 
-/*--STEP 4 - Update Partitioning Information and Sort Set Elements------------*/
+/*--STEP 3 - Update Partitioning Information and Sort Set Elements------------*/
 
-    //update partition information and new local set sizes
+    //need to exchange the original g_index 
     for(int s=0; s<OP_set_index; s++) { //for each set
     	op_set set=OP_set_list[s];
-      
-    	part p = OP_part_list[set->index];
+    	
     	set_halo_list imp = pi_list[set->index];
-      
-    	int* new_g_index = (int *)xmalloc(sizeof(int)*(set->size+imp->size));
-      
-    	int count = 0;
-    	for(int i = 0; i < set->size;i++)
-    	{
-    	    if(p->elem_part[i] == my_rank)
+    	set_halo_list exp = pe_list[set->index];
+    	
+    	MPI_Request request_send[exp->ranks_size];
+    	
+    	//prepare bits of the original g_index array to be exported
+    	int** sbuf = (int **)xmalloc(exp->ranks_size*sizeof(int *));
+    	
+    	//send original g_index values to relevant mpi processes
+    	for(int i=0; i<exp->ranks_size; i++) {
+    	    sbuf[i] = (int *)xmalloc(exp->sizes[i]*sizeof(int));
+    	    for(int j = 0; j<exp->sizes[i]; j++)
     	    {
-    	    	new_g_index[count] = OP_part_list[set->index]->g_index[i];
-    	    	count++;
-    	    }      	  
+    	    	sbuf[i][j] = OP_part_list[set->index]->
+    	    	g_index[exp->list[exp->disps[i]+j]];
+    	    }
+    	    MPI_Isend(sbuf[i],  exp->sizes[i],
+    	    	MPI_INT, exp->ranks[i],
+    	    	s, OP_PART_WORLD, &request_send[i]);
     	}
-      
-    	for(int i = 0; i<imp->ranks_size; i++)
+    	
+    	
+    	int *rbuf = (int *)xmalloc(sizeof(int)*imp->size);
+    	
+    	//receive original g_index values from relevant mpi processes
+    	for(int i=0; i < imp->ranks_size; i++) {
+
+    	    MPI_Recv(&rbuf[imp->disps[i]],imp->sizes[i],
+    	    	MPI_INT, imp->ranks[i], s,
+    	    	OP_PART_WORLD, MPI_STATUSES_IGNORE);
+    	}
+    	MPI_Waitall(exp->ranks_size,request_send, MPI_STATUSES_IGNORE );
+    	for(int i=0; i < exp->ranks_size; i++) free(sbuf[i]); free(sbuf);
+    	
+    	//delete the g_index entirs that has been sent and create a
+    	//modified g_index
+    	int* new_g_index = (int *)xmalloc(sizeof(int)*(set->size+imp->size));
+
+    	int count = 0;
+    	for(int i = 0; i < set->size;i++)//iterate over old size of the g_index array
     	{
-    	    for(int j = 0; j<imp->sizes[i]; j++)
+    	    if(OP_part_list[set->index]->elem_part[i] == my_rank)
     	    {
-    	    	new_g_index[count] = get_global_index(imp->list[imp->disps[i]+j],
-    	    	    imp->ranks[i], part_range[set->index], comm_size);
-    	    	count++;
+    	        new_g_index[count] = OP_part_list[set->index]->g_index[i];
+    	        count++;
     	    }
     	}
-      
+    	
+    	memcpy(&new_g_index[count],(void *)rbuf,sizeof(int)*imp->size);
+    	count = count+imp->size;
     	new_g_index = (int *)xrealloc(new_g_index,sizeof(int)*count);
     	int* new_part = (int *)xmalloc(sizeof(int)*count);
     	for(int i = 0; i< count; i++)new_part[i] = my_rank;
-      
-    	free(OP_part_list[set->index]->elem_part);
+    	
+    	free(rbuf);
     	free(OP_part_list[set->index]->g_index);
-      
+    	free(OP_part_list[set->index]->elem_part);
+    	    	
     	OP_part_list[set->index]->elem_part = new_part;
-    	OP_part_list[set->index]->g_index = new_g_index;   
-      
+    	OP_part_list[set->index]->g_index = new_g_index; 
+    	    	
     	OP_set_list[set->index]->size = count;   
-    	OP_part_list[set->index]->set= OP_set_list[set->index];    
-
+    	OP_part_list[set->index]->set= OP_set_list[set->index];
     }
-
-   
-  
+    
     //re-set values in mapping tables
     for(int m=0; m<OP_map_index; m++) { //for each maping table
    	   	  op_map map=OP_map_list[m];
@@ -1040,177 +1396,6 @@ void partition_all(op_set primary_set, int my_rank, int comm_size)
     	if(set->size > 0) 
     	    quickSort(OP_part_list[set->index]->g_index, 0, set->size-1);
     }
-  
-    
-/*--STEP 5 - Renumber mapping table entries with new partition's indexes------*/
-
-    //update partition rage information 
-    for(int i = 0; i<OP_set_index; i++)free(part_range[i]);
-    get_part_range(part_range,my_rank,comm_size, OP_PART_WORLD);
-
-    //find elements of the "to" set thats not in this local process
-    for(int m=0; m<OP_map_index; m++) { //for each maping table
-    	op_map map=OP_map_list[m];
-      	  
-      	int cap = 1000; int count = 0;
-      	int* req_list = (int *)xmalloc(cap*sizeof(int));
-   	    	    
-      	for(int i = 0; i< map->from->size; i++)
-      	{
-      	    int local_index;//, global_index;
-      	    for(int j=0; j<map->dim; j++)
-      	    {
-      	    	local_index = binary_search(OP_part_list[map->to->index]->g_index,
-      	    	    map->map[i*map->dim+j], 0, map->to->size-1);
-      	    	
-      	    	if(count>=cap)
-      	    	{
-      	      	    cap = cap*2;
-      	      	    req_list = (int *)xrealloc(req_list, cap*sizeof(int));
-      	      	}
-      	      	  
-      	      	if(local_index < 0) // not in this partition
-      	      	{
-      	      	    //store the global index of the element
-      	      	    req_list[count++] = map->map[i*map->dim+j]; 
-      	      	}
-      	    }
-      	}
-      	//sort and remove duplicates
-      	if(count > 0)
-      	{
-      	    quickSort(req_list, 0, count-1);
-      	    count = removeDups(req_list, count);
-      	    req_list = (int *)xrealloc(req_list, count*sizeof(int));
-      	}
-      	  
-      	//do an allgather to findout how many elements that each process will 
-      	//be asking partition information about
-      	int recv_count[comm_size];
-      	MPI_Allgather(&count, 1, MPI_INT, recv_count, 1, MPI_INT, OP_PART_WORLD);
-      	  
-      	//discover global size of these required elements
-      	int g_count = 0;
-      	for(int i = 0; i< comm_size; i++)g_count += recv_count[i];
-      	  
-      	//prepare for an allgatherv
-      	int disp = 0;
-      	int* displs = (int *)xmalloc(comm_size*sizeof(int));
-      	for(int i = 0; i<comm_size; i++)
-      	{
-      	    displs[i] =   disp;
-      	    disp = disp + recv_count[i];
-      	}
-      	  
-      	//allocate memory to hold the global indexes of elements requiring partition details
-      	int *g_index = (int *)xmalloc(sizeof(int)*g_count);
-      	  
-      	MPI_Allgatherv(req_list,count,MPI_INT, g_index,recv_count,displs,
-      	    MPI_INT, OP_PART_WORLD);
-      	free(req_list);
-      	  
-      	if(g_count > 0)
-      	{
-      	    quickSort(g_index, 0, g_count-1);
-      	    g_count = removeDups(g_index, g_count);
-      	    g_index = (int *)xrealloc(g_index, g_count*sizeof(int));
-      	}
-      	  
-      	//printf("on rank %d map %s needs set %s : before g_count = %d\n", 
-      	//    my_rank, map->name, map->to->name, g_count);
-      	  
-      	//go through the recieved global g_index array and see if any local element's
-      	//partition details are requested by some foreign process
-      	int *exp_index = (int *)xmalloc(sizeof(int)*g_count);
-      	int *exp_g_index = (int *)xmalloc(sizeof(int)*g_count);
-
-      	int exp_count = 0;
-      	for(int i = 0; i<g_count; i++)
-      	{
-      	    int local_index = binary_search(OP_part_list[map->to->index]->g_index,
-      	    	g_index[i],0,map->to->size-1);
-      	    int global_index;
-      	    if(local_index >= 0) 
-      	    {
-      	    	exp_g_index[exp_count] = g_index[i];
-      	      	
-      	    	global_index = get_global_index(local_index, my_rank,
-      	    	    part_range[map->to->index], comm_size);
-      	    	exp_index[exp_count++] = global_index;
-      	    }
-      	}
-      	free(g_index);
-      	
-      	//realloc exp_index, exp_g_index
-      	exp_index = (int *)xrealloc(exp_index,sizeof(int)*exp_count);
-      	exp_g_index = (int *)xrealloc(exp_g_index,sizeof(int)*exp_count);
-      	
-      	//now export to every one these partition info with an all-to-all
-      	MPI_Allgather(&exp_count, 1, MPI_INT, recv_count, 1, MPI_INT, OP_PART_WORLD);
-      	disp = 0; free(displs);
-      	displs = (int *)xmalloc(comm_size*sizeof(int));
-
-      	
-      	for(int i = 0; i<comm_size; i++)
-      	{
-      	    displs[i] =   disp;
-      	    disp = disp + recv_count[i];
-      	}
-      	  
-      	//allocate memory to hold the incomming partition details and allgatherv  
-      	g_count = 0;
-      	for(int i = 0; i< comm_size; i++)g_count += recv_count[i];
-      	int *all_imp_index = (int *)xmalloc(sizeof(int)*g_count);
-      	g_index = (int *)xmalloc(sizeof(int)*g_count);
-      	  
-      	//printf("on rank %d map %s need set %s: After g_count = %d\n", 
-      	//    my_rank, map.name,map.to.name,g_count);
-      	  
-      	MPI_Allgatherv(exp_g_index,exp_count,MPI_INT, g_index,recv_count,displs, 
-      	    MPI_INT, OP_PART_WORLD);
-      	
-      	MPI_Allgatherv(exp_index,exp_count,MPI_INT, all_imp_index,recv_count,
-      	    displs, MPI_INT, OP_PART_WORLD);
-      	  
-      	//sort all_imp_index according to g_index array
-      	if(g_count > 0)quickSort_2(g_index, all_imp_index, 0, g_count-1); 
-      	  
-      	//now we hopefully we have all the informattion required to renumber this map
-      	//so now, again go through each entry of this mapping table and renumber
-      	for(int i = 0; i< map->from->size; i++)
-      	{
-      	    int local_index, global_index;
-      	    for(int j=0; j < map->dim; j++)
-      	    {
-      	    	local_index = binary_search(OP_part_list[map->to->index]->g_index,
-      	    	    map->map[i*map->dim+j], 0, map->to->size-1);
-      	    	
-      	    	if(local_index < 0) // not in this partition
-      	      	{
-      	      	    //need to search through g_index array
-      	      	    int found = binary_search(g_index,map->map[i*map->dim+j],
-      	      	    	0, g_count-1);
-      	      	    if(found < 0) printf("Problem in renumbering\n");
-      	      	    else
-      	      	    {
-      	      	    	OP_map_list[map->index]-> map[i*map->dim+j] = 
-      	      	    	all_imp_index[found];
-      	      	    }
-      	      	}
-      	      	else //in this partition
-      	      	{
-      	      	    global_index = get_global_index(local_index, my_rank,
-      	      	    	part_range[map->to->index], comm_size);
-      	      	    OP_map_list[map->index]->map[i*map->dim+j] = global_index;
-      	      	}
-      	    }
-      	}
-      	free(exp_index);free(exp_g_index);
-      	free(g_index);
-      	free(displs);
-      	free(all_imp_index);
-    } 
-    
     
     //cleanup
     //destroy pe_list, pi_list    
@@ -1222,16 +1407,15 @@ void partition_all(op_set primary_set, int my_rank, int comm_size)
       free(pi_list[set->index]->ranks);free(pi_list[set->index]->disps);
       free(pi_list[set->index]->sizes);free(pi_list[set->index]->list);
       free(pe_list[set->index]);free(pi_list[set->index]);
-    }
+    }    
     
-    for(int i = 0; i<OP_set_index; i++)free(part_range[i]);free(part_range);
+    
 }
 
 
 
-
 /**------------Partition A Primary Set Using XYZ Geometry Data---------------**/
-void op_partition_geom(op_dat coords, int g_nnode) //uses ParMETIS_V3_PartGeom()
+void op_partition_geom(op_dat coords, int g_nnode) //wrapper to use ParMETIS_V3_PartGeom()
 {
     //declare timers
     double cpu_t1, cpu_t2, wall_t1, wall_t2;
@@ -1252,6 +1436,9 @@ void op_partition_geom(op_dat coords, int g_nnode) //uses ParMETIS_V3_PartGeom()
     // Compute global partition range information for each set
     int** part_range = (int **)xmalloc(OP_set_index*sizeof(int*));
     get_part_range(part_range,my_rank,comm_size, OP_PART_WORLD);
+    
+    //save the original part_range for future partition reversing
+    orig_part_range = part_range;
     
     //allocate memory for list
     OP_part_list = (part *)xmalloc(OP_set_index*sizeof(part));
@@ -1310,15 +1497,17 @@ void op_partition_geom(op_dat coords, int g_nnode) //uses ParMETIS_V3_PartGeom()
   
     //initialise primary set as partitioned
     OP_part_list[coords->set->index]->elem_part= partition;
-    OP_part_list[coords->set->index]->is_partitioned = 1;
-  
+    OP_part_list[coords->set->index]->is_partitioned = 1;  
     
-    //partition all other sets, migrate data and renumber mapping tables
+    //partition all other sets
     partition_all(coords->set, my_rank, comm_size);
     
-    //cleanup
-    for(int i = 0; i<OP_set_index; i++)free(part_range[i]);free(part_range);
+    //migrate data, sort elements 
+    migrate_all(my_rank, comm_size);
     
+    //renumber mapping tables
+    renumber_maps(my_rank, comm_size);
+
     op_timers(&cpu_t2, &wall_t2);  //timer stop for partitioning
     //printf time for partitioning
     time = wall_t2-wall_t1;
@@ -1336,7 +1525,51 @@ void op_partition_kway(op_map primary_map){}
 void op_partition_geomkway(op_dat coords, int g_nnode, op_map primary_map){}
 
 
+
+
 //revert back to the original partitioning 
-void op_partition_reverse(){}
+void op_partition_reverse()
+{
+    //create new communicator for reverse-partitioning
+    int my_rank, comm_size;
+    MPI_Comm_dup(MPI_COMM_WORLD, &OP_PART_WORLD);
+    MPI_Comm_rank(OP_PART_WORLD, &my_rank);
+    MPI_Comm_size(OP_PART_WORLD, &comm_size);
+    
+    //need original g_index with current index - already in OP_part_list
+    //need original part_range - saved during partition creation
+          
+    //use g_index and original part range to fill in 
+    //OP_part_list[set->index]->elem_part with original partitioning information
+    
+    for(int m=0; m<OP_set_index; m++) { //for each set
+    	op_set set=OP_set_list[m];
+    	
+    	for(int i = 0; i < set->size; i++)
+    	{
+    	    int local_index;
+    	    OP_part_list[set->index]->elem_part[i] = 
+    	    get_partition(OP_part_list[set->index]->g_index[i], 
+    	    	orig_part_range[set->index], &local_index, comm_size);
+    	}
+    }
+    
+    //reverse renumbering of mapping tables
+    reverse_renumber_maps(my_rank, comm_size);
+    
+    //reverse back migration
+    migrate_all(my_rank, comm_size);
+    
+    //destroy OP_part_list[]
+    for(int s=0; s<OP_set_index; s++) { //for each set
+    	op_set set=OP_set_list[s];
+    	free(OP_part_list[set->index]->g_index);
+    	free(OP_part_list[set->index]->elem_part);
+    } 
+    for(int i = 0; i<OP_set_index; i++)free(orig_part_range[i]);free(orig_part_range);
+    MPI_Comm_free(&OP_PART_WORLD); 
+}
+
+
 
 

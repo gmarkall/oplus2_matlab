@@ -100,13 +100,13 @@ void op_par_loop(void (*kernel)( T0*, T1* ),
   if(arg0.idx != -1 || arg1.idx != -1)//indirect loop
   {
       if (OP_diags>2) { 
-      	  if(arg0.argtype == OP_ARG_DAT) reset_halo(set, arg0);
-      	  if(arg1.argtype == OP_ARG_DAT) reset_halo(set, arg1);
+      	  if(arg0.argtype == OP_ARG_DAT) reset_halo(arg0);
+      	  if(arg1.argtype == OP_ARG_DAT) reset_halo(arg1);
       }
       
       //for each indirect data set
-      if(arg0.argtype == OP_ARG_DAT) sent[0] = exchange_halo(set, arg0); 
-      if(arg1.argtype == OP_ARG_DAT) sent[1] = exchange_halo(set, arg1);
+      if(arg0.argtype == OP_ARG_DAT) sent[0] = exchange_halo(arg0); 
+      if(arg1.argtype == OP_ARG_DAT) sent[1] = exchange_halo(arg1);
       
       //for all indirect dataset access with OP_READ
       if(arg0.acc == OP_READ && arg1.acc == OP_READ   ) exec_length = set->size;
@@ -128,8 +128,8 @@ void op_par_loop(void (*kernel)( T0*, T1* ),
   }
   
   //wait for comms to complete
-  if(arg0.argtype == OP_ARG_DAT) if(sent[0] == 1 )wait_all(set, arg0);
-  if(arg1.argtype == OP_ARG_DAT) if(sent[1] == 1 )wait_all(set, arg1);  
+  if(arg0.argtype == OP_ARG_DAT) if(sent[0] == 1 )wait_all(arg0);
+  if(arg1.argtype == OP_ARG_DAT) if(sent[1] == 1 )wait_all(arg1);  
   
   for (int n=owned_num[set->index]; n<set->size; n++) {  
       	  op_arg_set(n,arg0 ,&p_arg0 );
@@ -214,19 +214,19 @@ void op_par_loop(void (*kernel)( T0*, T1*, T2*, T3*,
      arg4.idx != -1 )//indirect loop
   {
       if (OP_diags>2) { 
-      	  if(arg0.argtype == OP_ARG_DAT) reset_halo(set, arg0);
-      	  if(arg1.argtype == OP_ARG_DAT) reset_halo(set, arg1);
-      	  if(arg2.argtype == OP_ARG_DAT) reset_halo(set, arg2);
-      	  if(arg3.argtype == OP_ARG_DAT) reset_halo(set, arg3);
-      	  if(arg4.argtype == OP_ARG_DAT) reset_halo(set, arg4);
+      	  if(arg0.argtype == OP_ARG_DAT) reset_halo(arg0);
+      	  if(arg1.argtype == OP_ARG_DAT) reset_halo(arg1);
+      	  if(arg2.argtype == OP_ARG_DAT) reset_halo(arg2);
+      	  if(arg3.argtype == OP_ARG_DAT) reset_halo(arg3);
+      	  if(arg4.argtype == OP_ARG_DAT) reset_halo(arg4);
       }
       
       //for each indirect data set
-      if(arg0.argtype == OP_ARG_DAT) sent[0] = exchange_halo(set, arg0);
-      if(arg1.argtype == OP_ARG_DAT) sent[1] = exchange_halo(set, arg1);
-      if(arg2.argtype == OP_ARG_DAT) sent[2] = exchange_halo(set, arg2);
-      if(arg3.argtype == OP_ARG_DAT) sent[3] = exchange_halo(set, arg3);
-      if(arg4.argtype == OP_ARG_DAT) sent[4] = exchange_halo(set, arg4);
+      if(arg0.argtype == OP_ARG_DAT) sent[0] = exchange_halo(arg0);
+      if(arg1.argtype == OP_ARG_DAT) sent[1] = exchange_halo(arg1);
+      if(arg2.argtype == OP_ARG_DAT) sent[2] = exchange_halo(arg2);
+      if(arg3.argtype == OP_ARG_DAT) sent[3] = exchange_halo(arg3);
+      if(arg4.argtype == OP_ARG_DAT) sent[4] = exchange_halo(arg4);
 
       //for all indirect dataset access with OP_READ
       if(arg0.acc == OP_READ && arg1.acc == OP_READ && arg2.acc == OP_READ && 
@@ -254,11 +254,11 @@ void op_par_loop(void (*kernel)( T0*, T1*, T2*, T3*,
   }
   
    //wait for comms to complete
-  if(arg0.argtype == OP_ARG_DAT) if(sent[0] == 1 )wait_all(set, arg0);
-  if(arg1.argtype == OP_ARG_DAT) if(sent[1] == 1 )wait_all(set, arg1);
-  if(arg2.argtype == OP_ARG_DAT) if(sent[2] == 1 )wait_all(set, arg2);
-  if(arg3.argtype == OP_ARG_DAT) if(sent[3] == 1 )wait_all(set, arg3);
-  if(arg4.argtype == OP_ARG_DAT) if(sent[4] == 1 )wait_all(set, arg4);
+  if(arg0.argtype == OP_ARG_DAT) if(sent[0] == 1 )wait_all(arg0);
+  if(arg1.argtype == OP_ARG_DAT) if(sent[1] == 1 )wait_all(arg1);
+  if(arg2.argtype == OP_ARG_DAT) if(sent[2] == 1 )wait_all(arg2);
+  if(arg3.argtype == OP_ARG_DAT) if(sent[3] == 1 )wait_all(arg3);
+  if(arg4.argtype == OP_ARG_DAT) if(sent[4] == 1 )wait_all(arg4);
   
   for (int n=owned_num[set->index]; n<set->size; n++) {  
       op_arg_set(n,arg0 ,&p_arg0 );
@@ -364,21 +364,21 @@ void op_par_loop(void (*kernel)( T0*, T1*, T2*, T3*,
      arg4.idx != -1 || arg5.idx != -1)//indirect loop
   {
       if (OP_diags>2) { 
-      	  if(arg0.argtype == OP_ARG_DAT) reset_halo(set, arg0);
-      	  if(arg1.argtype == OP_ARG_DAT) reset_halo(set, arg1);
-      	  if(arg2.argtype == OP_ARG_DAT) reset_halo(set, arg2);
-      	  if(arg3.argtype == OP_ARG_DAT) reset_halo(set, arg3);
-      	  if(arg4.argtype == OP_ARG_DAT) reset_halo(set, arg4);
-      	  if(arg5.argtype == OP_ARG_DAT) reset_halo(set, arg5);
+      	  if(arg0.argtype == OP_ARG_DAT) reset_halo(arg0);
+      	  if(arg1.argtype == OP_ARG_DAT) reset_halo(arg1);
+      	  if(arg2.argtype == OP_ARG_DAT) reset_halo(arg2);
+      	  if(arg3.argtype == OP_ARG_DAT) reset_halo(arg3);
+      	  if(arg4.argtype == OP_ARG_DAT) reset_halo(arg4);
+      	  if(arg5.argtype == OP_ARG_DAT) reset_halo(arg5);
       }
       
       //for each indirect data set
-      if(arg0.argtype == OP_ARG_DAT) sent[0] = exchange_halo(set, arg0); 
-      if(arg1.argtype == OP_ARG_DAT) sent[1] = exchange_halo(set, arg1);
-      if(arg2.argtype == OP_ARG_DAT) sent[2] = exchange_halo(set, arg2);
-      if(arg3.argtype == OP_ARG_DAT) sent[3] = exchange_halo(set, arg3); 
-      if(arg4.argtype == OP_ARG_DAT) sent[4] = exchange_halo(set, arg4); 
-      if(arg5.argtype == OP_ARG_DAT) sent[5] = exchange_halo(set, arg5);
+      if(arg0.argtype == OP_ARG_DAT) sent[0] = exchange_halo(arg0); 
+      if(arg1.argtype == OP_ARG_DAT) sent[1] = exchange_halo(arg1);
+      if(arg2.argtype == OP_ARG_DAT) sent[2] = exchange_halo(arg2);
+      if(arg3.argtype == OP_ARG_DAT) sent[3] = exchange_halo(arg3); 
+      if(arg4.argtype == OP_ARG_DAT) sent[4] = exchange_halo(arg4); 
+      if(arg5.argtype == OP_ARG_DAT) sent[5] = exchange_halo(arg5);
 
       //for all indirect dataset access with OP_READ
       if(arg0.acc == OP_READ && arg1.acc == OP_READ && arg2.acc == OP_READ && 
@@ -407,12 +407,12 @@ void op_par_loop(void (*kernel)( T0*, T1*, T2*, T3*,
   }
   
     //wait for comms to complete
-  if(arg0.argtype == OP_ARG_DAT) if(sent[0] == 1 )wait_all(set, arg0);
-  if(arg1.argtype == OP_ARG_DAT) if(sent[1] == 1 )wait_all(set, arg1);
-  if(arg2.argtype == OP_ARG_DAT) if(sent[2] == 1 )wait_all(set, arg2);
-  if(arg3.argtype == OP_ARG_DAT) if(sent[3] == 1 )wait_all(set, arg3);
-  if(arg4.argtype == OP_ARG_DAT) if(sent[4] == 1 )wait_all(set, arg4);
-  if(arg5.argtype == OP_ARG_DAT) if(sent[5] == 1 )wait_all(set, arg5); 
+  if(arg0.argtype == OP_ARG_DAT) if(sent[0] == 1 )wait_all(arg0);
+  if(arg1.argtype == OP_ARG_DAT) if(sent[1] == 1 )wait_all(arg1);
+  if(arg2.argtype == OP_ARG_DAT) if(sent[2] == 1 )wait_all(arg2);
+  if(arg3.argtype == OP_ARG_DAT) if(sent[3] == 1 )wait_all(arg3);
+  if(arg4.argtype == OP_ARG_DAT) if(sent[4] == 1 )wait_all(arg4);
+  if(arg5.argtype == OP_ARG_DAT) if(sent[5] == 1 )wait_all(arg5); 
   
   for (int n=owned_num[set->index]; n<set->size; n++) {  
       op_arg_set(n,arg0 ,&p_arg0 );
@@ -531,25 +531,25 @@ void op_par_loop(void (*kernel)( T0*, T1*, T2*, T3*,
      arg4.idx != -1 || arg5.idx != -1 || arg6.idx != -1 || arg7.idx != -1)//indirect loop
   {
       if (OP_diags>2) { 
-      	  if(arg0.argtype == OP_ARG_DAT) reset_halo(set, arg0);
-      	  if(arg1.argtype == OP_ARG_DAT) reset_halo(set, arg1);
-      	  if(arg2.argtype == OP_ARG_DAT) reset_halo(set, arg2);
-      	  if(arg3.argtype == OP_ARG_DAT) reset_halo(set, arg3);
-      	  if(arg4.argtype == OP_ARG_DAT) reset_halo(set, arg4);
-      	  if(arg5.argtype == OP_ARG_DAT) reset_halo(set, arg5);
-      	  if(arg6.argtype == OP_ARG_DAT) reset_halo(set, arg6);
-      	  if(arg7.argtype == OP_ARG_DAT) reset_halo(set, arg7);
+      	  if(arg0.argtype == OP_ARG_DAT) reset_halo(arg0);
+      	  if(arg1.argtype == OP_ARG_DAT) reset_halo(arg1);
+      	  if(arg2.argtype == OP_ARG_DAT) reset_halo(arg2);
+      	  if(arg3.argtype == OP_ARG_DAT) reset_halo(arg3);
+      	  if(arg4.argtype == OP_ARG_DAT) reset_halo(arg4);
+      	  if(arg5.argtype == OP_ARG_DAT) reset_halo(arg5);
+      	  if(arg6.argtype == OP_ARG_DAT) reset_halo(arg6);
+      	  if(arg7.argtype == OP_ARG_DAT) reset_halo(arg7);
       }
   
       //for each indirect data set
-      if(arg0.argtype == OP_ARG_DAT) sent[0] = exchange_halo(set, arg0); 
-      if(arg1.argtype == OP_ARG_DAT) sent[1] = exchange_halo(set, arg1);
-      if(arg2.argtype == OP_ARG_DAT) sent[2] = exchange_halo(set, arg2);
-      if(arg3.argtype == OP_ARG_DAT) sent[3] = exchange_halo(set, arg3);
-      if(arg4.argtype == OP_ARG_DAT) sent[4] = exchange_halo(set, arg4);
-      if(arg5.argtype == OP_ARG_DAT) sent[5] = exchange_halo(set, arg5);
-      if(arg6.argtype == OP_ARG_DAT) sent[6] = exchange_halo(set, arg6);
-      if(arg7.argtype == OP_ARG_DAT) sent[7] = exchange_halo(set, arg7);
+      if(arg0.argtype == OP_ARG_DAT) sent[0] = exchange_halo(arg0); 
+      if(arg1.argtype == OP_ARG_DAT) sent[1] = exchange_halo(arg1);
+      if(arg2.argtype == OP_ARG_DAT) sent[2] = exchange_halo(arg2);
+      if(arg3.argtype == OP_ARG_DAT) sent[3] = exchange_halo(arg3);
+      if(arg4.argtype == OP_ARG_DAT) sent[4] = exchange_halo(arg4);
+      if(arg5.argtype == OP_ARG_DAT) sent[5] = exchange_halo(arg5);
+      if(arg6.argtype == OP_ARG_DAT) sent[6] = exchange_halo(arg6);
+      if(arg7.argtype == OP_ARG_DAT) sent[7] = exchange_halo(arg7);
   
       //for all indirect dataset access with OP_READ
       if(arg0.acc == OP_READ && arg1.acc == OP_READ && arg2.acc == OP_READ && 
@@ -581,14 +581,14 @@ void op_par_loop(void (*kernel)( T0*, T1*, T2*, T3*,
   }
   
   //wait for comms to complete
-  if(arg0.argtype == OP_ARG_DAT && sent[0] == 1 )wait_all(set, arg0);
-  if(arg1.argtype == OP_ARG_DAT && sent[1] == 1 )wait_all(set, arg1);
-  if(arg2.argtype == OP_ARG_DAT && sent[2] == 1 )wait_all(set, arg2);
-  if(arg3.argtype == OP_ARG_DAT && sent[3] == 1 )wait_all(set, arg3);
-  if(arg4.argtype == OP_ARG_DAT && sent[4] == 1 )wait_all(set, arg4);
-  if(arg5.argtype == OP_ARG_DAT && sent[5] == 1 )wait_all(set, arg5);
-  if(arg6.argtype == OP_ARG_DAT && sent[6] == 1 )wait_all(set, arg6);
-  if(arg7.argtype == OP_ARG_DAT && sent[7] == 1 )wait_all(set, arg7);
+  if(arg0.argtype == OP_ARG_DAT && sent[0] == 1 )wait_all(arg0);
+  if(arg1.argtype == OP_ARG_DAT && sent[1] == 1 )wait_all(arg1);
+  if(arg2.argtype == OP_ARG_DAT && sent[2] == 1 )wait_all(arg2);
+  if(arg3.argtype == OP_ARG_DAT && sent[3] == 1 )wait_all(arg3);
+  if(arg4.argtype == OP_ARG_DAT && sent[4] == 1 )wait_all(arg4);
+  if(arg5.argtype == OP_ARG_DAT && sent[5] == 1 )wait_all(arg5);
+  if(arg6.argtype == OP_ARG_DAT && sent[6] == 1 )wait_all(arg6);
+  if(arg7.argtype == OP_ARG_DAT && sent[7] == 1 )wait_all(arg7);
   
   for (int n=owned_num[set->index]; n<set->size; n++) { 
       op_arg_set(n,arg0 ,&p_arg0 );

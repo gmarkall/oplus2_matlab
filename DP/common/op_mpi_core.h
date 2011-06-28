@@ -35,29 +35,20 @@
 
 /**-----------------------MPI halo Data Types-----------------------------**/
 typedef struct {
- op_map	      map; //mapping table thats related to this list
- int 	      size; //total size of this list
- int 	     *ranks; //MPI ranks to be exported to or imported from
- int	     ranks_size; //number of MPI neighbors to be exported to or imported from
- int         *disps; //displacements for the starting point of each rank's element list in list
- int 	     *sizes;  //element list sizes for each ranks
- int 	     *list;  //the list (all ranks) 
-} map_halo_list_core;
-
-typedef map_halo_list_core* map_halo_list;
-
-
-typedef struct {
- op_set	      set; //set related to this list
- int 	      size; //total size of this list
- int 	     *ranks; //MPI ranks to be exported to or imported from
- int	     ranks_size; //number of MPI neighbors to be exported to or imported from
- int         *disps; //displacements for the starting point of each rank's element list in list
- int 	     *sizes;  //element list sizes for each ranks
- int 	     *list;  //the list (all ranks) 
+ op_set set;        //set related to this list
+ int    size;       //number of elements in this list                                
+ int    *ranks;     //MPI ranks to be exported to or imported from
+ int    ranks_size; //number of MPI neighbors 
+                    //to be exported to or imported from
+ int    *disps;     //displacements for the starting point of each 
+                    //rank's element list 
+ int    *sizes;     //number of elements exported to or imported 
+                    //from each ranks
+ int    *list;      //the list of all elements 
 } set_halo_list_core;
 
 typedef set_halo_list_core* set_halo_list;
+
 
 
 /**-------------------Data structures related to partitioning----------------**/
@@ -65,25 +56,32 @@ typedef set_halo_list_core* set_halo_list;
 //struct to hold the partition information for each set
 typedef struct
 {
-  op_set set; //set to which this partition information blongs to 
-  int* g_index; //global index of each element held in this MPI process
-  int* elem_part; //partition to which each element belongs
-  int is_partitioned; //indicates if this set is partitioned 1 if partitioned 0 if not
+  op_set set;   //set to which this partition info blongs to 
+  int *g_index; //global index of each element held in 
+                //this MPI process
+  int *elem_part;//partition to which each element belongs
+  int is_partitioned; //indicates if this set is partitioned 
+                      //1 if partitioned 0 if not
 } part_core;
 
-typedef part_core* part;
+typedef part_core *part;
 
 
 
 /**-----------------Data Type to hold MPI performance measures---------------**/
-typedef struct {
-  char const *name;   // name of kernel 
-  double time; //total time spent in this kernel (compute+comm)
-  int  count; //number of times this kernel is called
-  int* op_dat_indices;  //array to hold op_dat index of each op_dat used in MPI halo exports for this kernel
-  int  num_indices; //number of op_dat indices
-  int* tot_count;  //total number of times this op_dat was halo exported within this kernel
-  int* tot_bytes; //total number of bytes halo exported for this op_dat in this kernel
-  
+typedef struct 
+{
+  char const  *name;   // name of kernel 
+  double      time;    //total time spent in this 
+                       //kernel (compute+comm-overlapping)
+  int         count;   //number of times this kernel is called
+  int*        op_dat_indices;  //array to hold op_dat index of 
+                               //each op_dat used in MPI halo 
+                               //exports for this kernel
+  int         num_indices; //number of op_dat indices
+  int*        tot_count;   //total number of times this op_dat was 
+                           //halo exported within this kernel
+  int*        tot_bytes;   //total number of bytes halo exported 
+                           //for this op_dat in this kernel  
 } op_mpi_kernel;
 

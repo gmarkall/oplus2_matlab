@@ -101,10 +101,7 @@ extern op_kernel *OP_kernels;
 // external variables for mpi declared in op_mpi_core.c
 //
 
-extern map_halo_list* OP_export_maps_list; 
 extern set_halo_list* OP_export_sets_list; 
-
-extern map_halo_list* OP_import_maps_list; 
 extern set_halo_list* OP_import_sets_list;
 
 extern set_halo_list* OP_import_nonexec_sets_list;
@@ -184,10 +181,10 @@ extern "C"
 void op_halo_destroy();
 
 extern "C" 
-int exchange_halo(op_set set, op_arg arg);
+int exchange_halo(op_arg arg);
 
 extern "C"
-void wait_all(op_set set, op_arg arg);
+void wait_all(op_arg arg);
 
 extern "C"
 void set_dirtybit(op_arg arg);
@@ -205,13 +202,13 @@ extern "C"
 void op_mpi_perf_comm(int kernel_index, op_arg arg);
 
 extern "C"
-void gatherprint_tofile(op_dat dat, int rank, int comm_size, int g_size);
+void gatherprint_tofile(op_dat dat, const char *file_name);
 
 extern "C"
-void gatherprint_bin_tofile(op_dat dat, int rank, int comm_size, int g_size);
+void gatherprint_bin_tofile(op_dat dat, const char *file_name);
 
 extern "C"
-void reset_halo(op_set set, op_arg arg);
+void reset_halo(op_arg arg);
 
 
 //
