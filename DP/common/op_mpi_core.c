@@ -48,11 +48,11 @@ MPI_Comm OP_MPI_WORLD;
 
 /**---------------------MPI Halo related global variables -------------------**/
 
-set_halo_list *OP_export_sets_list;//EEH for sets
-set_halo_list *OP_import_sets_list;//IEH for sets
+halo_list *OP_export_exec_list;//EEH list
+halo_list *OP_import_exec_list;//IEH list
 
-set_halo_list *OP_import_nonexec_sets_list;//INH for sets
-set_halo_list *OP_export_nonexec_sets_list;//ENH for sets 
+halo_list *OP_import_nonexec_list;//INH list
+halo_list *OP_export_nonexec_list;//ENH list 
 
 //global array to hold dirty_bits for op_dats
 int* dirtybit;
@@ -94,6 +94,11 @@ op_mpi_kernel op_mpi_kernel_tab[HASHSIZE];
 int OP_part_index = 0;
 part *OP_part_list;
 
+
+//
+//Save original partition ranges
+//
+int** orig_part_range = NULL;
 
 /**-------------------------MPI halo utility functions ----------------------**/
 
@@ -164,7 +169,7 @@ int get_global_index(int local_index, int partition, int* part_range, int comm_s
 
 
 
-void find_neighbors_set(set_halo_list List, int* neighbors, int* sizes, 
+void find_neighbors_set(halo_list List, int* neighbors, int* sizes, 
 	int* ranks_size, int my_rank, int comm_size, MPI_Comm Comm)
 {
     int* temp = (int*)xmalloc(comm_size*sizeof(int));
@@ -260,16 +265,16 @@ void create_set_export_list(op_set set, int* temp_list, int size,
     create_list(list, ranks, disps, sizes, &ranks_size, &total_size,
     temp_list, size, comm_size, my_rank);
     
-    set_halo_list halo_list= (set_halo_list)xmalloc(sizeof(set_halo_list_core));
-    halo_list->set = set;
-    halo_list->size = total_size;
-    halo_list->ranks = ranks;
-    halo_list->ranks_size = ranks_size;
-    halo_list->disps = disps;
-    halo_list->sizes = sizes;
-    halo_list->list = list;
+    halo_list h_list= (halo_list)xmalloc(sizeof(halo_list_core));
+    h_list->set = set;
+    h_list->size = total_size;
+    h_list->ranks = ranks;
+    h_list->ranks_size = ranks_size;
+    h_list->disps = disps;
+    h_list->sizes = sizes;
+    h_list->list = list;
     
-    OP_export_sets_list[set->index] = halo_list;
+    OP_export_exec_list[set->index] = h_list;
     
 }
 
@@ -287,16 +292,16 @@ void create_nonexec_set_import_list(op_set set, int* temp_list, int size,
     create_list(list, ranks, disps, sizes, &ranks_size, &total_size,
     temp_list, size, comm_size, my_rank);
     
-    set_halo_list halo_list= (set_halo_list)xmalloc(sizeof(set_halo_list_core));
-    halo_list->set = set;
-    halo_list->size = total_size;
-    halo_list->ranks = ranks;
-    halo_list->ranks_size = ranks_size;
-    halo_list->disps = disps;
-    halo_list->sizes = sizes;
-    halo_list->list = list;
+    halo_list h_list= (halo_list)xmalloc(sizeof(halo_list_core));
+    h_list->set = set;
+    h_list->size = total_size;
+    h_list->ranks = ranks;
+    h_list->ranks_size = ranks_size;
+    h_list->disps = disps;
+    h_list->sizes = sizes;
+    h_list->list = list;
     
-    OP_import_nonexec_sets_list[set->index] = halo_list;
+    OP_import_nonexec_list[set->index] = h_list;
     
 }
 
@@ -310,16 +315,16 @@ void create_set_import_list(op_set set, int* temp_list, int total_size,
     	if(i>0)disps[i] = disps[i-1]+sizes[i-1]; 	
     }
     
-    set_halo_list halo_list= (set_halo_list)xmalloc(sizeof(set_halo_list_core));
-    halo_list->set = set;
-    halo_list->size = total_size;
-    halo_list->ranks = ranks;
-    halo_list->ranks_size = ranks_size;
-    halo_list->disps = disps;
-    halo_list->sizes = sizes;
-    halo_list->list = temp_list;
+    halo_list h_list= (halo_list)xmalloc(sizeof(halo_list_core));
+    h_list->set = set;
+    h_list->size = total_size;
+    h_list->ranks = ranks;
+    h_list->ranks_size = ranks_size;
+    h_list->disps = disps;
+    h_list->sizes = sizes;
+    h_list->list = temp_list;
     
-    OP_import_sets_list[set->index] = halo_list;    
+    OP_import_exec_list[set->index] = h_list;    
 }
 
 void create_nonexec_set_export_list(op_set set, int* temp_list, int total_size, 
@@ -332,16 +337,16 @@ void create_nonexec_set_export_list(op_set set, int* temp_list, int total_size,
     	if(i>0)disps[i] = disps[i-1]+sizes[i-1]; 	
     }
     
-    set_halo_list halo_list= (set_halo_list)xmalloc(sizeof(set_halo_list_core));
-    halo_list->set = set;
-    halo_list->size = total_size;
-    halo_list->ranks = ranks;
-    halo_list->ranks_size = ranks_size;
-    halo_list->disps = disps;
-    halo_list->sizes = sizes;
-    halo_list->list = temp_list;
+    halo_list h_list= (halo_list)xmalloc(sizeof(halo_list_core));
+    h_list->set = set;
+    h_list->size = total_size;
+    h_list->ranks = ranks;
+    h_list->ranks_size = ranks_size;
+    h_list->disps = disps;
+    h_list->sizes = sizes;
+    h_list->list = temp_list;
     
-    OP_export_nonexec_sets_list[set->index] = halo_list;
+    OP_export_nonexec_list[set->index] = h_list;
 }
 
 
@@ -365,7 +370,23 @@ void op_halo_create()
     int** part_range = (int **)xmalloc(OP_set_index*sizeof(int*));
     get_part_range(part_range,my_rank,comm_size, OP_MPI_WORLD);
     
-    OP_export_sets_list = (set_halo_list *)xmalloc(OP_set_index*sizeof(set_halo_list));
+    //save this partition range information if it is not already saved during
+    //a call to some partitioning routine
+    if(orig_part_range == NULL) 
+    {
+    	orig_part_range = (int **)xmalloc(OP_set_index*sizeof(int*));
+    	for(int s = 0; s< OP_set_index; s++)
+    	{
+    	    op_set set=OP_set_list[s];
+    	    orig_part_range[set->index] = (int *)xmalloc(2*comm_size*sizeof(int));
+    	    for(int j = 0; j<comm_size; j++){
+    	    	orig_part_range[set->index][2*j] = part_range[set->index][2*j];
+    	    	orig_part_range[set->index][2*j+1] = part_range[set->index][2*j+1];
+    	    }	
+    	}
+    }
+    
+    OP_export_exec_list = (halo_list *)xmalloc(OP_set_index*sizeof(halo_list));
     
     /*----- STEP 1 - Construct export lists for execute set elements and related
     mapping table entries -----*/
@@ -419,7 +440,7 @@ void op_halo_create()
     
     /*---- STEP 2 - construct import lists for mappings and execute sets------*/
     
-    OP_import_sets_list = (set_halo_list *)xmalloc(OP_set_index*sizeof(set_halo_list));        
+    OP_import_exec_list = (halo_list *)xmalloc(OP_set_index*sizeof(halo_list));        
     
     int *neighbors, *sizes;
     int ranks_size;
@@ -432,7 +453,7 @@ void op_halo_create()
     	neighbors = (int *)xmalloc(comm_size*sizeof(int));
     	sizes = (int *)xmalloc(comm_size*sizeof(int));
     	
-    	set_halo_list list = OP_export_sets_list[set->index];
+    	halo_list list = OP_export_exec_list[set->index];
     	
     	find_neighbors_set(list,neighbors,sizes,&ranks_size,my_rank,
     	    comm_size, OP_MPI_WORLD);
@@ -476,8 +497,8 @@ void op_halo_create()
           
     for(int m=0; m<OP_map_index; m++) { //for each maping table
     	op_map map=OP_map_list[m];
-    	set_halo_list i_list = OP_import_sets_list[map->from->index];
-    	set_halo_list e_list = OP_export_sets_list[map->from->index];
+    	halo_list i_list = OP_import_exec_list[map->from->index];
+    	halo_list e_list = OP_export_exec_list[map->from->index];
   	  
     	MPI_Request request_send[e_list->ranks_size];
 
@@ -522,8 +543,8 @@ void op_halo_create()
     /*-- STEP 4 - Create import lists for non-execute set elements using mapping
     table entries including the additional mapping table entries --*/
     
-    OP_import_nonexec_sets_list = (set_halo_list *)xmalloc(OP_set_index*sizeof(set_halo_list));
-    OP_export_nonexec_sets_list = (set_halo_list *)xmalloc(OP_set_index*sizeof(set_halo_list));
+    OP_import_nonexec_list = (halo_list *)xmalloc(OP_set_index*sizeof(halo_list));
+    OP_export_nonexec_list = (halo_list *)xmalloc(OP_set_index*sizeof(halo_list));
      
     //declare temporaty scratch variables to hold non-exec set export lists
     s_i = 0;
@@ -532,7 +553,7 @@ void op_halo_create()
   
     for(int s=0; s<OP_set_index; s++) { //for each set
     	op_set set=OP_set_list[s];
-    	set_halo_list exec_set_list=OP_import_sets_list[set->index];   
+    	halo_list exec_set_list=OP_import_exec_list[set->index];   
       
     	//create a temporaty scratch space to hold nonexec export list for this set
     	s_i = 0;
@@ -540,7 +561,7 @@ void op_halo_create()
     	
     	for(int m=0; m<OP_map_index; m++) { //for each maping table
     	    op_map map=OP_map_list[m];
-    	    set_halo_list exec_map_list=OP_import_sets_list[map->from->index];
+    	    halo_list exec_map_list=OP_import_exec_list[map->from->index];
     	    
     	    if(compare_sets(map->to,set)==1) //need to select mappings TO this set
     	    {
@@ -604,7 +625,7 @@ void op_halo_create()
     	neighbors = (int* )xmalloc(comm_size*sizeof(int));
     	sizes = (int* )xmalloc(comm_size*sizeof(int));
       
-    	set_halo_list list=OP_import_nonexec_sets_list[set->index];
+    	halo_list list=OP_import_nonexec_list[set->index];
     	find_neighbors_set(list,neighbors,sizes,&ranks_size,my_rank, 
     	    comm_size, OP_MPI_WORLD);
             
@@ -651,8 +672,8 @@ void op_halo_create()
     
     for(int s=0; s<OP_set_index; s++){ //for each set
     	op_set set=OP_set_list[s];
-    	set_halo_list i_list = OP_import_sets_list[set->index];
-    	set_halo_list e_list = OP_export_sets_list[set->index];
+    	halo_list i_list = OP_import_exec_list[set->index];
+    	halo_list e_list = OP_export_exec_list[set->index];
       
     	//for each data array
     	for(int d=0; d<OP_dat_index; d++){
@@ -709,8 +730,8 @@ void op_halo_create()
 
     for(int s=0; s<OP_set_index; s++){ //for each set
     	op_set set=OP_set_list[s];
-    	set_halo_list i_list = OP_import_nonexec_sets_list[set->index];
-    	set_halo_list e_list = OP_export_nonexec_sets_list[set->index];
+    	halo_list i_list = OP_import_nonexec_list[set->index];
+    	halo_list e_list = OP_export_nonexec_list[set->index];
         
     	//for each data array
     	for(int d=0; d<OP_dat_index; d++){
@@ -739,7 +760,7 @@ void op_halo_create()
       	      
     	    	//prepare space for the incomming nonexec-data - realloc each
     	    	//data array in each mpi process
-    	    	set_halo_list exec_i_list = OP_import_sets_list[set->index];      
+    	    	halo_list exec_i_list = OP_import_exec_list[set->index];      
       
     	    	OP_dat_list[dat->index]->data = (char *)xrealloc(OP_dat_list[dat->index]->data,
     	    	    (set->size+exec_i_list->size+i_list->size)*dat->size);
@@ -773,10 +794,10 @@ void op_halo_create()
       	        	 
     	    if(compare_sets(map->to,set)==1) //need to select mappings TO this set
     	    {	
-    	    	set_halo_list exec_set_list=OP_import_sets_list[set->index];
-    	    	set_halo_list nonexec_set_list=OP_import_nonexec_sets_list[set->index];
+    	    	halo_list exec_set_list=OP_import_exec_list[set->index];
+    	    	halo_list nonexec_set_list=OP_import_nonexec_list[set->index];
       	  
-    	    	set_halo_list exec_map_list=OP_import_sets_list[map->from->index];
+    	    	halo_list exec_map_list=OP_import_exec_list[map->from->index];
     	    	
     	    	//for each entry in this mapping table: original+execlist
     	    	int len = map->from->size+exec_map_list->size;
@@ -850,14 +871,14 @@ void op_halo_create()
     	
     	op_mpi_buffer mpi_buf= (op_mpi_buffer)xmalloc(sizeof(op_mpi_buffer_core));
     	
-    	set_halo_list exec_e_list = OP_export_sets_list[dat->set->index];
-    	set_halo_list nonexec_e_list = OP_export_nonexec_sets_list[dat->set->index];    	
+    	halo_list exec_e_list = OP_export_exec_list[dat->set->index];
+    	halo_list nonexec_e_list = OP_export_nonexec_list[dat->set->index];    	
     	
     	mpi_buf->buf_exec = (char *)xmalloc((exec_e_list->size)*dat->size);
     	mpi_buf->buf_nonexec = (char *)xmalloc((nonexec_e_list->size)*dat->size);
     	
-    	set_halo_list exec_i_list = OP_import_sets_list[dat->set->index];
-    	set_halo_list nonexec_i_list = OP_import_nonexec_sets_list[dat->set->index];
+    	halo_list exec_i_list = OP_import_exec_list[dat->set->index];
+    	halo_list nonexec_i_list = OP_import_nonexec_list[dat->set->index];
 
     	mpi_buf->s_req = (MPI_Request *)xmalloc(sizeof(MPI_Request)*
     	    (exec_e_list->ranks_size + nonexec_e_list->ranks_size));
@@ -891,8 +912,8 @@ void op_halo_create()
     for(int s=0; s<OP_set_index; s++) { //for each set
     	op_set set=OP_set_list[s];
     	
-    	set_halo_list exec = OP_export_sets_list[set->index];
-    	set_halo_list nonexec = OP_export_nonexec_sets_list[set->index];
+    	halo_list exec = OP_export_exec_list[set->index];
+    	halo_list nonexec = OP_export_nonexec_list[set->index];
     	
     	if(exec->size > 0)
     	{
@@ -1001,7 +1022,7 @@ void op_halo_create()
     for(int m=0; m<OP_map_index; m++) { //for each set
     	op_map map=OP_map_list[m];
     	
-    	set_halo_list exec_map_list=OP_import_sets_list[map->from->index];
+    	halo_list exec_map_list=OP_import_exec_list[map->from->index];
     	//for each entry in this mapping table: original+execlist
     	int len = map->from->size+exec_map_list->size;
     	for(int e = 0; e < len; e++)
@@ -1041,9 +1062,13 @@ void op_halo_create()
     	    op_set set=OP_set_list[s];
     	    //printf("set %s size = %d\n", set.name, set.size);
     	    int *g_index = (int *)xmalloc(sizeof(int)*set->size);
+    	    int *partition = (int *)xmalloc(sizeof(int)*set->size);
     	    for(int i = 0; i< set->size; i++)
+    	    {
     	    	g_index[i] = get_global_index(i,my_rank, part_range[set->index],comm_size);
-    	    decl_partition(set, g_index, NULL); 
+    	    	partition[i] = my_rank;
+    	    }
+    	    decl_partition(set, g_index, partition); 
     	    
     	    //combine owned_elems and exp_elems to one memory block
     	    int* temp = (int *)xmalloc(sizeof(int)*set->size);
@@ -1097,7 +1122,8 @@ void op_halo_create()
     {	free(part_range[i]);
     	free(owned_elems[i]); free(exp_elems[i]);
     }
-    free(part_range);free(exp_elems); free(owned_elems);
+    free(part_range);
+    free(exp_elems); free(owned_elems);
        
     op_timers(&cpu_t2, &wall_t2);  //timer stop for list create    
     //compute import/export lists creation time
@@ -1114,8 +1140,8 @@ void op_halo_create()
     	    
     	     if(compare_sets(dat->set,set)==1)
     	     {
-    	     	 set_halo_list exec_imp = OP_import_sets_list[set->index];
-    	     	 set_halo_list nonexec_imp= OP_import_nonexec_sets_list[set->index];
+    	     	 halo_list exec_imp = OP_import_exec_list[set->index];
+    	     	 halo_list nonexec_imp= OP_import_nonexec_list[set->index];
     	     	 tot_halo_size = tot_halo_size + exec_imp->size*dat->size +
     	     	 		  nonexec_imp->size*dat->size;
     	     }
@@ -1149,33 +1175,33 @@ void op_halo_destroy()
     for(int s = 0; s< OP_set_index; s++){
     	op_set set=OP_set_list[s]; 
     	    	
-    	free(OP_import_sets_list[set->index]->ranks);
-    	free(OP_import_sets_list[set->index]->disps);
-    	free(OP_import_sets_list[set->index]->sizes);
-    	free(OP_import_sets_list[set->index]->list);
-    	free(OP_import_sets_list[set->index]);
+    	free(OP_import_exec_list[set->index]->ranks);
+    	free(OP_import_exec_list[set->index]->disps);
+    	free(OP_import_exec_list[set->index]->sizes);
+    	free(OP_import_exec_list[set->index]->list);
+    	free(OP_import_exec_list[set->index]);
     	
-    	free(OP_import_nonexec_sets_list[set->index]->ranks);
-    	free(OP_import_nonexec_sets_list[set->index]->disps);
-    	free(OP_import_nonexec_sets_list[set->index]->sizes);
-    	free(OP_import_nonexec_sets_list[set->index]->list);
-    	free(OP_import_nonexec_sets_list[set->index]);
+    	free(OP_import_nonexec_list[set->index]->ranks);
+    	free(OP_import_nonexec_list[set->index]->disps);
+    	free(OP_import_nonexec_list[set->index]->sizes);
+    	free(OP_import_nonexec_list[set->index]->list);
+    	free(OP_import_nonexec_list[set->index]);
     	
-    	free(OP_export_sets_list[set->index]->ranks);
-    	free(OP_export_sets_list[set->index]->disps);
-    	free(OP_export_sets_list[set->index]->sizes);
-    	free(OP_export_sets_list[set->index]->list);
-    	free(OP_export_sets_list[set->index]);
+    	free(OP_export_exec_list[set->index]->ranks);
+    	free(OP_export_exec_list[set->index]->disps);
+    	free(OP_export_exec_list[set->index]->sizes);
+    	free(OP_export_exec_list[set->index]->list);
+    	free(OP_export_exec_list[set->index]);
     	
-    	free(OP_export_nonexec_sets_list[set->index]->ranks);
-    	free(OP_export_nonexec_sets_list[set->index]->disps);
-    	free(OP_export_nonexec_sets_list[set->index]->sizes);
-    	free(OP_export_nonexec_sets_list[set->index]->list); 
-    	free(OP_export_nonexec_sets_list[set->index]);    	
+    	free(OP_export_nonexec_list[set->index]->ranks);
+    	free(OP_export_nonexec_list[set->index]->disps);
+    	free(OP_export_nonexec_list[set->index]->sizes);
+    	free(OP_export_nonexec_list[set->index]->list); 
+    	free(OP_export_nonexec_list[set->index]);    	
     	
     }
-    free(OP_import_sets_list);free(OP_import_nonexec_sets_list);
-    free(OP_export_sets_list);free(OP_export_nonexec_sets_list);
+    free(OP_import_exec_list);free(OP_import_nonexec_list);
+    free(OP_export_exec_list);free(OP_export_nonexec_list);
     
     for(int d=0; d<OP_dat_index; d++){
     	op_dat dat=OP_dat_list[d];
@@ -1213,11 +1239,11 @@ int exchange_halo(op_arg arg)
     	(dirtybit[dat->index] == 1))
     {
     	//printf("Exchanging Halo of data array %10s\n",dat->name);
-	set_halo_list imp_exec_list = OP_import_sets_list[dat->set->index];
-	set_halo_list imp_nonexec_list = OP_import_nonexec_sets_list[dat->set->index];
+	halo_list imp_exec_list = OP_import_exec_list[dat->set->index];
+	halo_list imp_nonexec_list = OP_import_nonexec_list[dat->set->index];
 	    
-	set_halo_list exp_exec_list = OP_export_sets_list[dat->set->index];
-	set_halo_list exp_nonexec_list = OP_export_nonexec_sets_list[dat->set->index];
+	halo_list exp_exec_list = OP_export_exec_list[dat->set->index];
+	halo_list exp_nonexec_list = OP_export_nonexec_list[dat->set->index];
 
 	//-------first exchange exec elements related to this data array--------
 	
@@ -1395,8 +1421,8 @@ void reset_halo(op_arg arg)
     	(dirtybit[dat->index] == 1))
     {
     	//printf("Resetting Halo of data array %10s\n",dat->name);
-	set_halo_list imp_exec_list = OP_import_sets_list[dat->set->index];
-	set_halo_list imp_nonexec_list = OP_import_nonexec_sets_list[dat->set->index];
+	halo_list imp_exec_list = OP_import_exec_list[dat->set->index];
+	halo_list imp_nonexec_list = OP_import_nonexec_list[dat->set->index];
 	    
 	// initialise import halo data to NaN
 	int double_count = imp_exec_list->size*dat->size/sizeof(double);
@@ -1518,8 +1544,8 @@ void op_mpi_perf_comm(int kernel_index, op_arg arg)
 {
     op_dat dat = arg.dat;
 
-    set_halo_list exp_exec_list = OP_export_sets_list[dat->set->index];
-    set_halo_list exp_nonexec_list = OP_export_nonexec_sets_list[dat->set->index];
+    halo_list exp_exec_list = OP_export_exec_list[dat->set->index];
+    halo_list exp_nonexec_list = OP_export_nonexec_list[dat->set->index];
 	
 	
     int tot_halo_size = (exp_exec_list->size + exp_nonexec_list->size) * dat->size;
@@ -1651,8 +1677,7 @@ void gatherprint_tofile(op_dat dat, const char *file_name)
     	}
     	fclose(fp);
     	free(g_array);
-    }
-    
+    }    
     free(l_array);free(recevcnts);free(displs);
 }
 

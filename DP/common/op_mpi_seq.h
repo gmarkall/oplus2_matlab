@@ -110,7 +110,7 @@ void op_par_loop(void (*kernel)( T0*, T1* ),
       
       //for all indirect dataset access with OP_READ
       if(arg0.acc == OP_READ && arg1.acc == OP_READ   ) exec_length = set->size;
-      else  exec_length = set->size + OP_import_sets_list[set->index]->size;
+      else  exec_length = set->size + OP_import_exec_list[set->index]->size;
   }
   else //direct loop
   {
@@ -232,7 +232,7 @@ void op_par_loop(void (*kernel)( T0*, T1*, T2*, T3*,
       if(arg0.acc == OP_READ && arg1.acc == OP_READ && arg2.acc == OP_READ && 
       	  arg3.acc == OP_READ && arg4.acc == OP_READ )
       exec_length = set->size;
-      else  exec_length = set->size + OP_import_sets_list[set->index]->size;
+      else  exec_length = set->size + OP_import_exec_list[set->index]->size;
   }
   else //direct loop
   {
@@ -384,7 +384,7 @@ void op_par_loop(void (*kernel)( T0*, T1*, T2*, T3*,
       if(arg0.acc == OP_READ && arg1.acc == OP_READ && arg2.acc == OP_READ && 
       	  arg3.acc == OP_READ && arg4.acc == OP_READ && arg5.acc == OP_READ)
       exec_length = set->size;
-      else  exec_length = set->size + OP_import_sets_list[set->index]->size;
+      else  exec_length = set->size + OP_import_exec_list[set->index]->size;
   }
   else //direct loop
   {
@@ -556,7 +556,7 @@ void op_par_loop(void (*kernel)( T0*, T1*, T2*, T3*,
       	  arg3.acc == OP_READ && arg4.acc == OP_READ && arg5.acc == OP_READ && 
       	  arg6.acc == OP_READ && arg7.acc == OP_READ)
       exec_length = set->size;
-      else  exec_length = set->size + OP_import_sets_list[set->index]->size;
+      else  exec_length = set->size + OP_import_exec_list[set->index]->size;
   }
   else //direct loop
   {

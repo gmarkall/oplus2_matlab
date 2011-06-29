@@ -45,9 +45,9 @@ typedef struct {
  int    *sizes;     //number of elements exported to or imported 
                     //from each ranks
  int    *list;      //the list of all elements 
-} set_halo_list_core;
+} halo_list_core;
 
-typedef set_halo_list_core* set_halo_list;
+typedef halo_list_core* halo_list;
 
 
 

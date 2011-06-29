@@ -42,10 +42,8 @@
 //
 MPI_Comm OP_PART_WORLD;
 
-//
-//Save original partition ranges
-//
-int** orig_part_range;
+
+
 
 int frequencyof(int value, int* array, int size)
 {
@@ -82,7 +80,7 @@ int compare_all_sets(op_set target_set, op_set other_sets[], int size)
 }
 
 
-void create_exp_list(op_set set, int* temp_list, set_halo_list halo_list, 
+void create_exp_list(op_set set, int* temp_list, halo_list h_list, 
     int size, int comm_size, int my_rank)
 {
     int* ranks = (int *) xmalloc(comm_size*sizeof(int));
@@ -96,16 +94,16 @@ void create_exp_list(op_set set, int* temp_list, set_halo_list halo_list,
     create_list(list, ranks, disps, sizes, &ranks_size, &total_size,
     temp_list, size, comm_size, my_rank);
     
-    halo_list->set = set;
-    halo_list->size = total_size;
-    halo_list->ranks = ranks;
-    halo_list->ranks_size = ranks_size;
-    halo_list->disps = disps;
-    halo_list->sizes = sizes;
-    halo_list->list = list;
+    h_list->set = set;
+    h_list->size = total_size;
+    h_list->ranks = ranks;
+    h_list->ranks_size = ranks_size;
+    h_list->disps = disps;
+    h_list->sizes = sizes;
+    h_list->list = list;
 }
 
-void create_imp_list(op_set set, int* temp_list, set_halo_list halo_list, 
+void create_imp_list(op_set set, int* temp_list, halo_list h_list, 
     int total_size, int* ranks, int* sizes, int ranks_size, int comm_size, 
     int my_rank)
 {
@@ -116,19 +114,19 @@ void create_imp_list(op_set set, int* temp_list, set_halo_list halo_list,
     	if(i>0)disps[i] = disps[i-1]+sizes[i-1]; 	
     }
 
-    halo_list->set = set;
-    halo_list->size = total_size;
-    halo_list->ranks = ranks;
-    halo_list->ranks_size = ranks_size;
-    halo_list->disps = disps;
-    halo_list->sizes = sizes;
-    halo_list->list = temp_list;
+    h_list->set = set;
+    h_list->size = total_size;
+    h_list->ranks = ranks;
+    h_list->ranks_size = ranks_size;
+    h_list->disps = disps;
+    h_list->sizes = sizes;
+    h_list->list = temp_list;
     
 }
 
 /**special routine to create export list during partitioning map->to set 
 from map_>from set in partition_to_set()**/
-int* create_exp_list_2(op_set set, int* temp_list, set_halo_list halo_list, 
+int* create_exp_list_2(op_set set, int* temp_list, halo_list h_list, 
     int* part_list, int size, int comm_size, int my_rank)
 {
     int* ranks = (int *) xmalloc(comm_size*sizeof(int));
@@ -185,20 +183,20 @@ int* create_exp_list_2(op_set set, int* temp_list, set_halo_list halo_list,
     }
     
     
-    halo_list->set = set;
-    halo_list->size = total_size;
-    halo_list->ranks = ranks;
-    halo_list->ranks_size = index;
-    halo_list->disps = disps;
-    halo_list->sizes = sizes;
-    halo_list->list = to_list;
+    h_list->set = set;
+    h_list->size = total_size;
+    h_list->ranks = ranks;
+    h_list->ranks_size = index;
+    h_list->disps = disps;
+    h_list->sizes = sizes;
+    h_list->list = to_list;
     
     return part_list;
 }
 
 /**special routine to create import list during partitioning map->to set 
 from map_>from set in partition_to_set()**/
-void create_imp_list_2(op_set set, int* temp_list, set_halo_list halo_list, 
+void create_imp_list_2(op_set set, int* temp_list, halo_list h_list, 
     int total_size, int* ranks, int* sizes, int ranks_size, int comm_size, 
     int my_rank)
 {
@@ -209,13 +207,13 @@ void create_imp_list_2(op_set set, int* temp_list, set_halo_list halo_list,
     	if(i>0)disps[i] = disps[i-1]+sizes[i-1];
     }
     
-    halo_list->set = set;
-    halo_list->size = total_size;
-    halo_list->ranks = ranks;
-    halo_list->ranks_size = ranks_size;
-    halo_list->disps = disps;
-    halo_list->sizes = sizes;
-    halo_list->list = temp_list;    
+    h_list->set = set;
+    h_list->size = total_size;
+    h_list->ranks = ranks;
+    h_list->ranks_size = ranks_size;
+    h_list->disps = disps;
+    h_list->sizes = sizes;
+    h_list->list = temp_list;    
 }
 
 
@@ -229,7 +227,7 @@ int partition_from_set(op_map map, int my_rank, int comm_size, int** part_range)
     int cap = 100; int count = 0;
     int* temp_list = (int*) xmalloc(cap*sizeof(int));
     
-    set_halo_list pi_list = (set_halo_list) xmalloc(sizeof(set_halo_list_core));
+    halo_list pi_list = (halo_list) xmalloc(sizeof(halo_list_core));
     
     //go through the map and build an import list of the non-local "to" elements 
     for(int i = 0; i < map->from->size; i++)
@@ -262,7 +260,7 @@ int partition_from_set(op_map map, int my_rank, int comm_size, int** part_range)
     int* neighbors = (int *)xmalloc(comm_size*sizeof(int));
     int* sizes = (int *)xmalloc(comm_size*sizeof(int));
     
-    set_halo_list pe_list = (set_halo_list) xmalloc(sizeof(set_halo_list_core));
+    halo_list pe_list = (halo_list) xmalloc(sizeof(halo_list_core));
     find_neighbors_set(pi_list, neighbors, sizes, &ranks_size, my_rank, 
     	comm_size, OP_PART_WORLD);
     
@@ -392,7 +390,7 @@ int partition_to_set(op_map map, int my_rank, int comm_size, int** part_range)
     int cap = 300; int count = 0; 
     int* temp_list = (int *)xmalloc(cap*sizeof(int));
 
-    set_halo_list pe_list = (set_halo_list) xmalloc(sizeof(set_halo_list_core));
+    halo_list pe_list = (halo_list) xmalloc(sizeof(halo_list_core));
     int* part_list_e = NULL; //corresponding "to" element's partition infomation 
                              //exported to an mpi rank
         
@@ -429,20 +427,13 @@ int partition_to_set(op_map map, int my_rank, int comm_size, int** part_range)
     	count, comm_size, my_rank);
     free(temp_list);
     
-    /*for(int i=0; i < pe_list->ranks_size; i++) {
-        for(int j = 0; j<pe_list->sizes[i]; j++)
-        {
-            printf(" %d",part_list_e[pe_list->disps[i]]);         	   
-        }
-        printf("\n");
-    }*/
-    
+  
     int ranks_size = 0;
     int* neighbors = (int *)xmalloc(comm_size*sizeof(int));
     int* sizes = (int *)xmalloc(comm_size*sizeof(int));
     
     //to_part_list tpi_list;
-    set_halo_list pi_list = (set_halo_list) xmalloc(sizeof(set_halo_list_core));
+    halo_list pi_list = (halo_list) xmalloc(sizeof(halo_list_core));
     int* part_list_i = NULL; //corresponding "to" element's partition infomation 
                              //imported from an mpi rank
     
@@ -684,6 +675,7 @@ void partition_all(op_set primary_set, int my_rank, int comm_size)
     for(int i = 0; i<OP_set_index; i++)free(part_range[i]);free(part_range);
 }
 
+
 /**------- Renumber mapping table entries with new partition's indexes -------*/
 void renumber_maps(int my_rank, int comm_size)
 {
@@ -700,7 +692,7 @@ void renumber_maps(int my_rank, int comm_size)
    	    	    
       	for(int i = 0; i< map->from->size; i++)
       	{
-      	    int local_index;//, global_index;
+      	    int local_index;
       	    for(int j=0; j<map->dim; j++)
       	    {
       	    	local_index = binary_search(OP_part_list[map->to->index]->g_index,
@@ -813,7 +805,10 @@ void renumber_maps(int my_rank, int comm_size)
       	
       	MPI_Allgatherv(exp_index,exp_count,MPI_INT, all_imp_index,recv_count,
       	    displs, MPI_INT, OP_PART_WORLD);
-      	  
+      	
+      	free(exp_index);
+      	free(exp_g_index);
+      	
       	//sort all_imp_index according to g_index array
       	if(g_count > 0)quickSort_2(g_index, all_imp_index, 0, g_count-1); 
       	  
@@ -847,7 +842,7 @@ void renumber_maps(int my_rank, int comm_size)
       	      	}
       	    }
       	}
-      	free(exp_index);free(exp_g_index);
+      	
       	free(g_index);
       	free(displs);
       	free(all_imp_index);
@@ -855,13 +850,13 @@ void renumber_maps(int my_rank, int comm_size)
     for(int i = 0; i<OP_set_index; i++)free(part_range[i]);free(part_range);
 }
 
+
+/**--------- Reverse the renumbering of mapping tables------------------------*/
 void reverse_renumber_maps(int my_rank, int comm_size)
 {
     int** part_range = (int **)xmalloc(OP_set_index*sizeof(int*));
     get_part_range(part_range,my_rank,comm_size, OP_PART_WORLD);
     
-/*--STEP 1 - Reverse the renumbering of mapping tables------------------------*/
-
     //renumber mapping tables replacing the to_set elements of each mapping table
     // with the original index of those set elements from g_index (will need all to alls)
     for(int m=0; m<OP_map_index; m++) { //for each map
@@ -876,7 +871,7 @@ void reverse_renumber_maps(int my_rank, int comm_size)
       	    for(int j=0; j<map->dim; j++) { //for each element pointed at by this entry
       	    	part = get_partition(map->map[i*map->dim+j],
       	    	    part_range[map->to->index],&local_index,comm_size);    	    
-      	    
+      	    	
       	    	if(count>=cap)
       	    	{
       	    	    cap = cap*2;
@@ -985,6 +980,9 @@ void reverse_renumber_maps(int my_rank, int comm_size)
       	MPI_Allgatherv(orig_index,exp_count,MPI_INT, all_orig_index,recv_count,
       	    displs, MPI_INT, OP_PART_WORLD);
       	
+      	free(curr_index);
+      	free(orig_index);
+      	
       	//sort all_orig_index according to all_curr_index array
       	if(g_count > 0)quickSort_2(all_curr_index, all_orig_index, 0, g_count-1); 
       	
@@ -1017,11 +1015,12 @@ void reverse_renumber_maps(int my_rank, int comm_size)
       	    }
       	}
       	
+      	
       	free(all_curr_index);free(all_orig_index);
-      	free(curr_index);free(orig_index);
       	free(displs);      	
       	
     }
+    for(int i = 0; i<OP_set_index; i++)free(part_range[i]);free(part_range);
 }
 
 
@@ -1031,8 +1030,8 @@ void migrate_all(int my_rank, int comm_size)
 /*--STEP 1 - Create Imp/Export Lists for reverse migrating elements ----------*/
 
     //create imp/exp lists for reverse migration     
-    set_halo_list pe_list[OP_set_index]; //export list for each set 
-    set_halo_list pi_list[OP_set_index]; //import list for each set
+    halo_list pe_list[OP_set_index]; //export list for each set 
+    halo_list pi_list[OP_set_index]; //import list for each set
     
     //create partition export lists
     int* temp_list; int count, cap;
@@ -1060,7 +1059,7 @@ void migrate_all(int my_rank, int comm_size)
     	    }
     	}
     	//create partition info export list
-    	pe_list[set->index] = (set_halo_list) xmalloc(sizeof(set_halo_list_core));
+    	pe_list[set->index] = (halo_list) xmalloc(sizeof(halo_list_core));
     	create_exp_list(set, temp_list, pe_list[set->index], count, comm_size, my_rank);
     	free(temp_list);      
     }
@@ -1072,7 +1071,7 @@ void migrate_all(int my_rank, int comm_size)
     for(int s=0; s<OP_set_index; s++) { //for each set
     	op_set set=OP_set_list[s];
       
-    	set_halo_list exp = pe_list[set->index];
+    	halo_list exp = pe_list[set->index];
       
     	//-----Discover neighbors-----
     	ranks_size = 0;
@@ -1110,20 +1109,20 @@ void migrate_all(int my_rank, int comm_size)
     	}
       
     	MPI_Waitall(exp->ranks_size,request_send, MPI_STATUSES_IGNORE );
-    	pi_list[set->index] = (set_halo_list) xmalloc(sizeof(set_halo_list_core));
+    	pi_list[set->index] = (halo_list) xmalloc(sizeof(halo_list_core));
     	create_imp_list(set, temp_list, pi_list[set->index], count,
     	    neighbors, sizes, ranks_size, comm_size, my_rank);
     }
     
 
-/*--STEP 2 - Perform Partitioning Data reverse migration ---------------------*/
+/*--STEP 2 - Perform Partitioning Data migration -----------------------------*/
 
     //data migration first ......  
     for(int s=0; s<OP_set_index; s++) { //for each set
     	op_set set=OP_set_list[s];
     	
-    	set_halo_list imp = pi_list[set->index];
-    	set_halo_list exp = pe_list[set->index];
+    	halo_list imp = pi_list[set->index];
+    	halo_list exp = pe_list[set->index];
     	
     	MPI_Request request_send[exp->ranks_size];
     	    	
@@ -1194,8 +1193,8 @@ void migrate_all(int my_rank, int comm_size)
     for(int s=0; s<OP_set_index; s++) { //for each set
     	op_set set=OP_set_list[s];
       
-    	set_halo_list imp = pi_list[set->index];
-    	set_halo_list exp = pe_list[set->index];
+    	halo_list imp = pi_list[set->index];
+    	halo_list exp = pe_list[set->index];
       
     	MPI_Request request_send[exp->ranks_size];
            
@@ -1274,8 +1273,8 @@ void migrate_all(int my_rank, int comm_size)
     for(int s=0; s<OP_set_index; s++) { //for each set
     	op_set set=OP_set_list[s];
     	
-    	set_halo_list imp = pi_list[set->index];
-    	set_halo_list exp = pe_list[set->index];
+    	halo_list imp = pi_list[set->index];
+    	halo_list exp = pe_list[set->index];
     	
     	MPI_Request request_send[exp->ranks_size];
     	
@@ -1407,9 +1406,7 @@ void migrate_all(int my_rank, int comm_size)
       free(pi_list[set->index]->ranks);free(pi_list[set->index]->disps);
       free(pi_list[set->index]->sizes);free(pi_list[set->index]->list);
       free(pe_list[set->index]);free(pi_list[set->index]);
-    }    
-    
-    
+    }        
 }
 
 
@@ -1438,7 +1435,16 @@ void op_partition_geom(op_dat coords, int g_nnode) //wrapper to use ParMETIS_V3_
     get_part_range(part_range,my_rank,comm_size, OP_PART_WORLD);
     
     //save the original part_range for future partition reversing
-    orig_part_range = part_range;
+    orig_part_range = (int **)xmalloc(OP_set_index*sizeof(int*));
+    for(int s = 0; s< OP_set_index; s++)
+    {
+    	op_set set=OP_set_list[s];
+    	orig_part_range[set->index] = (int *)xmalloc(2*comm_size*sizeof(int));
+    	for(int j = 0; j<comm_size; j++){
+    	    orig_part_range[set->index][2*j] = part_range[set->index][2*j];
+    	    orig_part_range[set->index][2*j+1] = part_range[set->index][2*j+1];
+    	}
+    }
     
     //allocate memory for list
     OP_part_list = (part *)xmalloc(OP_set_index*sizeof(part));
@@ -1494,6 +1500,9 @@ void op_partition_geom(op_dat coords, int g_nnode) //wrapper to use ParMETIS_V3_
     //use xyz coordinates to feed into ParMETIS_V3_PartGeom
     ParMETIS_V3_PartGeom(vtxdist, &ndims, xyz, partition, &OP_PART_WORLD);
     free(xyz);free(vtxdist);
+    
+    //free part range
+    for(int i = 0; i<OP_set_index; i++)free(part_range[i]);free(part_range);
   
     //initialise primary set as partitioned
     OP_part_list[coords->set->index]->elem_part= partition;
@@ -1530,6 +1539,12 @@ void op_partition_geomkway(op_dat coords, int g_nnode, op_map primary_map){}
 //revert back to the original partitioning 
 void op_partition_reverse()
 {
+    //declare timers
+    double cpu_t1, cpu_t2, wall_t1, wall_t2;
+    double time;
+    double max_time;
+    op_timers(&cpu_t1, &wall_t1); //timer start for partition reversing
+    
     //create new communicator for reverse-partitioning
     int my_rank, comm_size;
     MPI_Comm_dup(MPI_COMM_WORLD, &OP_PART_WORLD);
@@ -1541,7 +1556,6 @@ void op_partition_reverse()
           
     //use g_index and original part range to fill in 
     //OP_part_list[set->index]->elem_part with original partitioning information
-    
     for(int m=0; m<OP_set_index; m++) { //for each set
     	op_set set=OP_set_list[m];
     	
@@ -1565,9 +1579,17 @@ void op_partition_reverse()
     	op_set set=OP_set_list[s];
     	free(OP_part_list[set->index]->g_index);
     	free(OP_part_list[set->index]->elem_part);
-    } 
+    	free(OP_part_list[set->index]);
+    }
+    free(OP_part_list);
     for(int i = 0; i<OP_set_index; i++)free(orig_part_range[i]);free(orig_part_range);
-    MPI_Comm_free(&OP_PART_WORLD); 
+    
+    op_timers(&cpu_t2, &wall_t2);  //timer stop for partition reversing
+    //printf time for partition reversing
+    time = wall_t2-wall_t1;
+    MPI_Reduce(&time,&max_time,1,MPI_DOUBLE, MPI_MAX,0, OP_PART_WORLD);
+    MPI_Comm_free(&OP_PART_WORLD);  
+    if(my_rank==0)printf("Max total partition reverse time = %lf\n",max_time);    
 }
 
 

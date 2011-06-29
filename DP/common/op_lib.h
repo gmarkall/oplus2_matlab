@@ -101,13 +101,14 @@ extern op_kernel *OP_kernels;
 // external variables for mpi declared in op_mpi_core.c
 //
 
-extern set_halo_list* OP_export_sets_list; 
-extern set_halo_list* OP_import_sets_list;
+extern halo_list* OP_export_exec_list; 
+extern halo_list* OP_import_exec_list;
 
-extern set_halo_list* OP_import_nonexec_sets_list;
-extern set_halo_list* OP_export_nonexec_sets_list;  
+extern halo_list* OP_import_nonexec_list;
+extern halo_list* OP_export_nonexec_list;  
 
 extern int* owned_num;
+
 
 
 //
