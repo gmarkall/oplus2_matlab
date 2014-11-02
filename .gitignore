@@ -1,0 +1,10 @@
+*.o
+*~
+airfoil/airfoil
+airfoil/airfoil_seq
+jac*/jac
+jac*/jac_cuda
+jac*/jac_op
+jac*/jac_seq
+new_grid.dat
+test/test_seq
